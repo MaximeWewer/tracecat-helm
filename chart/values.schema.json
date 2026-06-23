@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Tracecat Helm values",
+  "type": "object",
+  "properties": {
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "create": { "type": "object" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string" },
+        "digest": { "type": "string" }
+      },
+      "required": ["repository"]
+    },
+    "uiImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string" },
+        "digest": { "type": "string" }
+      },
+      "required": ["repository"]
+    },
+    "initImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "digest": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      },
+      "required": ["repository"]
+    },
+    "imagePullSecrets": { "type": "array" },
+    "commonLabels": { "type": "object" },
+    "revisionHistoryLimit": { "type": "integer", "minimum": 0 },
+    "securityContext": { "type": "object" },
+    "containerSecurityContext": { "type": "object" },
+    "extraEnv": { "type": "array" },
+    "extraEnvFrom": { "type": "array" },
+    "scheduling": {
+      "type": "object",
+      "properties": {
+        "architecture": { "type": "string" },
+        "nodeSelector": { "type": "object" },
+        "affinity": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "topologySpreadConstraints": { "type": "array" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "tls": { "type": "array" }
+      }
+    },
+    "gatewayApi": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "apiVersion": { "type": "string" },
+        "parentRefs": { "type": "array" },
+        "hostnames": { "type": "array" },
+        "split": { "type": "boolean" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "virtualService": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "apiVersion": { "type": "string" }
+      }
+    },
+    "urls": {
+      "type": "object",
+      "properties": {
+        "publicApp": { "type": "string" },
+        "publicApi": { "type": "string" },
+        "publicMcp": { "type": "string" },
+        "publicS3": { "type": "string" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "enterprise": {
+      "type": "object",
+      "properties": {
+        "featureFlags": { "type": "string" },
+        "multiTenant": { "type": "boolean" }
+      }
+    },
+    "tracecat": {
+      "type": "object",
+      "properties": {
+        "appEnv": { "type": "string" },
+        "logLevel": { "type": "string" },
+        "allowOrigins": { "type": "string" },
+        "sentryDsn": { "type": "string" },
+        "executorTokenTtlSeconds": { "type": ["integer", "string"] },
+        "workflowArtifactRetentionDays": { "type": ["integer", "string"] },
+        "sandbox": {
+          "type": "object",
+          "properties": { "disableNsjail": { "type": "boolean" } }
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "types": { "type": "string" },
+            "allowedDomains": { "type": "string" },
+            "superadminEmail": { "type": "string" },
+            "minPasswordLength": { "type": ["integer", "string"] }
+          }
+        },
+        "oidc": { "type": "object" },
+        "oauth": { "type": "object" },
+        "saml": { "type": "object" },
+        "blobStorage": { "type": "object" },
+        "externalization": { "type": "object" },
+        "agentFs": { "type": "object" },
+        "localRepository": { "type": "object" },
+        "registrySync": { "type": "object" },
+        "mcp": { "type": "object" },
+        "temporal": { "type": "object" }
+      }
+    },
+    "api":           { "$ref": "#/definitions/workload" },
+    "ui":            { "$ref": "#/definitions/workload" },
+    "worker":        { "$ref": "#/definitions/workload" },
+    "executor":      { "$ref": "#/definitions/workload" },
+    "agentWorker":   { "$ref": "#/definitions/workload" },
+    "agentExecutor": { "$ref": "#/definitions/workload" },
+    "mcp": {
+      "allOf": [
+        { "$ref": "#/definitions/workload" },
+        { "properties": { "enabled": { "type": "boolean" }, "port": { "type": "integer" } } }
+      ]
+    },
+    "litellm": {
+      "allOf": [
+        { "$ref": "#/definitions/workload" },
+        { "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "type": "integer" },
+            "baseUrl": { "type": "string" }
+        } }
+      ]
+    },
+    "temporal": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "externalPostgres": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "database": { "type": "string" },
+        "sslMode": { "type": "string" },
+        "auth": { "type": "object" },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "verifyCA": { "type": "boolean" },
+            "caCert": { "type": "string" }
+          }
+        }
+      }
+    },
+    "externalRedis": { "type": "object" },
+    "externalS3": {
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string" },
+        "region": { "type": "string" },
+        "auth": { "type": "object" }
+      }
+    },
+    "externalTemporal": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "cnpg": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "app": { "$ref": "#/definitions/cnpgCluster" },
+        "temporal": { "$ref": "#/definitions/cnpgCluster" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "rustfs": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "bridgeSecrets": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "coreSecretName": { "type": "string" },
+        "redisSecretName": { "type": "string" },
+        "s3SecretName": { "type": "string" },
+        "redisServiceName": { "type": "string" },
+        "redisPort": { "type": "integer" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingressControllerNamespaceSelector": { "type": "object" },
+        "allowExternalHttps": { "type": "boolean" },
+        "extraEgress": { "type": "array" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] },
+        "maxUnavailable": { "type": ["integer", "string"] }
+      }
+    },
+    "reloader": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "keda": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "cooldownPeriod": { "type": "integer" },
+        "pollingInterval": { "type": "integer" }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "properties": {
+        "worker": { "$ref": "#/definitions/scaler" },
+        "executor": { "$ref": "#/definitions/scaler" },
+        "agentWorker": { "$ref": "#/definitions/scaler" },
+        "agentExecutor": { "$ref": "#/definitions/scaler" }
+      }
+    }
+  },
+  "definitions": {
+    "workload": {
+      "type": "object",
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 0 },
+        "resources": { "type": "object" },
+        "serviceAccount": { "type": "object" }
+      }
+    },
+    "scaler": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 0 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetQueueSize": { "type": ["integer", "string"] },
+        "queueTypes": { "type": "string" }
+      }
+    },
+    "cnpgCluster": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "owner": { "type": "string" },
+        "database": { "type": "string" },
+        "instances": { "type": "integer", "minimum": 1 },
+        "imageName": { "type": "string" },
+        "storage": { "type": "object" },
+        "resources": { "type": "object" },
+        "postInitSQL": { "type": "array" }
+      }
+    }
+  }
+}

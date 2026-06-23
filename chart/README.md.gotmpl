@@ -1,0 +1,72 @@
+# Tracecat Helm
+
+Helm chart for [Tracecat](https://github.com/TracecatHQ/tracecat).
+
+## Architecture
+
+**Tracecat components** (single backend image, command-overridden):
+
+| Component | Command | Notes |
+|-----------|---------|-------|
+| `api` | (default) | FastAPI, `:8000`, `/api/health` |
+| `ui` | (default) | Next.js, `:3000` |
+| `worker` | `tracecat.dsl.worker` | Temporal workflow worker |
+| `executor` | `tracecat.executor.worker` | Action executor (runs integration code) |
+| `agent-worker` | `tracecat.agent.worker` | Temporal worker for the agent queue |
+| `agent-executor` | `tracecat.agent.executor_worker` | Agent action executor |
+| `litellm` | `tracecat.agent.litellm` | LLM gateway, `:4000` |
+| `mcp` | `tracecat.mcp` | MCP server, `:8099` (opt-in, requires OIDC) |
+
+Plus a `migrations` Job (alembic) and a `temporal-setup` post-install hook.
+
+**Bundled dependencies:** Temporal (subchart), 2× CloudNative-PG `Cluster` (app + temporal, PG 17), Redis (CloudPirates), S3 (RustFS, standalone).
+
+## Prerequisites
+
+- Kubernetes **1.25+**, Helm **3+**.
+- **CloudNative-PG operator** installed cluster-wide (this chart ships only the `Cluster` CRs):
+  ```sh
+  helm repo add cnpg https://cloudnative-pg.github.io/charts
+  helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
+  ```
+- Optional, only if you enable the matching feature:
+  - **KEDA** operator — for `keda.enabled` autoscaling.
+  - **Prometheus Operator** CRDs — for `tracecat.temporal.metrics.serviceMonitor.enabled` / `cnpg.monitoring.enablePodMonitor`.
+  - **Gateway API** CRDs + controller (Kubernetes 1.29+ for `v1`) — for `gatewayApi.enabled`.
+
+## Install
+
+```sh
+helm dependency build
+helm install tracecat . -n tracecat --create-namespace \
+  --set tracecat.auth.superadminEmail=admin@example.com
+```
+
+Secrets are generated automatically (see `bridgeSecrets`). On first sign-in, register the superadmin email to claim the admin account.
+
+## Exposure (pick one)
+
+| Mode | Key | Notes |
+|------|-----|-------|
+| Ingress | `ingress.enabled` | Path routing `/`→ui, `/api`→api, `/mcp`→mcp on one host (recommended). |
+| Gateway API | `gatewayApi.enabled` | `HTTPRoute` (combined or `split`); set `parentRefs`. |
+| Istio | `virtualService.enabled` | VirtualService(s). |
+
+The UI enforces a same-origin CSP — serve UI and API on the **same host** (any of the above), not via split port-forwards.
+
+## Test
+
+```sh
+helm test tracecat -n tracecat   # checks api /api/health
+```
+
+## Notes / gotchas
+
+- Major PostgreSQL version changes are **not** in-place upgrades — recreate the cluster.
+- The Temporal subchart's schema job runs as a **normal Job** (`temporal.schema.useHelmHooks=false`) to avoid a deadlock with async CNPG provisioning.
+- Temporal SQL uses the modern `postgres12_pgx` (pgx) driver.
+- `executor` / `agent-executor` (arbitrary integration code) and `litellm` (writes a runtime config under `/app`) run with a **writable** root filesystem; all other components are read-only.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

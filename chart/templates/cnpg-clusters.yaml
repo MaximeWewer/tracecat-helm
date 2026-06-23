@@ -1,0 +1,73 @@
+{{- if .Values.cnpg.enabled }}
+{{- /*
+Two CloudNative-PG clusters provisioned by this chart (the CNPG operator + CRDs
+must be installed in the cluster first):
+  - app      : owner/db "tracecat"  -> service <name>-rw, secret <name>-app
+  - temporal : owner/db "temporal"  -> Temporal's schema manager creates the
+               temporal/temporal_visibility DBs itself, so the owner needs CREATEDB
+               (granted via postInitSQL).
+CNPG emits a <name>-app Secret (keys: username, password, ...) consumed by
+externalPostgres.auth.existingSecret and the Temporal datastore config.
+*/ -}}
+{{- $backup := .Values.cnpg.backup -}}
+{{- range $key := (list "app" "temporal") }}
+{{- $c := index $.Values.cnpg $key }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $c.name }}
+  {{- if $.Values.cnpg.retainOnDelete }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "postgres-%s" $key }}
+spec:
+  instances: {{ $c.instances }}
+  imageName: {{ $c.imageName | quote }}
+  {{- if $.Values.cnpg.enablePodAntiAffinity }}
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  {{- end }}
+  {{- if $.Values.cnpg.monitoring.enablePodMonitor }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ $c.database | quote }}
+      owner: {{ $c.owner | quote }}
+      {{- with $c.postInitSQL }}
+      postInitSQL:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  storage:
+    size: {{ $c.storage.size | quote }}
+    {{- if $c.storage.storageClass }}
+    storageClass: {{ $c.storage.storageClass | quote }}
+    {{- end }}
+  {{- with $c.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if $backup.enabled }}
+  backup:
+    retentionPolicy: {{ $backup.retentionPolicy | quote }}
+    barmanObjectStore:
+      destinationPath: {{ printf "%s/%s" (trimSuffix "/" $backup.destinationPath) $c.name | quote }}
+      endpointURL: {{ $backup.endpointURL | default (include "tracecat.rustfsEndpoint" $) | quote }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ $backup.s3Credentials.secretName | quote }}
+          key: {{ $backup.s3Credentials.accessKeyIdKey | quote }}
+        secretAccessKey:
+          name: {{ $backup.s3Credentials.secretName | quote }}
+          key: {{ $backup.s3Credentials.secretAccessKeyKey | quote }}
+      wal:
+        compression: {{ $backup.walCompression | quote }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

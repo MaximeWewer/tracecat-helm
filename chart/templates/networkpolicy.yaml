@@ -1,0 +1,122 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- /*
+Scoped to this chart's own pods only (selectorLabels), so the bundled subcharts
+(Temporal, CNPG, redis, RustFS) stay unpoliced and reachable. Egress is locked
+to in-namespace deps + DNS + optional public HTTPS (allowExternalHttps, for LLM
+providers / external IdP) + any explicit extraEgress; ingress to the public
+components is allowed from the ingress controller namespace.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tracecat.fullname" . }}-egress
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # In-namespace dependencies, restricted to their known ports.
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432            # PostgreSQL (CNPG app + temporal)
+        - protocol: TCP
+          port: 6379            # Redis
+        - protocol: TCP
+          port: 7233            # Temporal frontend (gRPC)
+        - protocol: TCP
+          port: 9000            # RustFS S3
+        - protocol: TCP
+          port: 8000            # Tracecat API
+        - protocol: TCP
+          port: 8080            # Temporal Web UI
+        - protocol: TCP
+          port: {{ .Values.litellm.port }}            # LiteLLM gateway
+        - protocol: TCP
+          port: {{ .Values.mcp.port }}            # MCP
+    # DNS resolution.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.allowExternalHttps }}
+    # Outbound HTTPS to the public internet (LLM providers, external IdP).
+    # RFC1918 + link-local excluded so this does not widen in-cluster reach.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tracecat.fullname" . }}-ingress
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["api", "ui", "mcp"]
+  policyTypes:
+    - Ingress
+  ingress:
+    # Intra-namespace traffic (e.g. worker -> api, ui -> api).
+    - from:
+        - podSelector: {}
+    # Ingress controller.
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressControllerNamespaceSelector | nindent 12 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tracecat.fullname" . }}-internal-ingress
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+spec:
+  # Non-public components default-deny ingress; allow only the LiteLLM gateway
+  # (agent workers -> litellm) and metrics scrape, from the same namespace.
+  podSelector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["worker", "executor", "agent-worker", "agent-executor", "litellm"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.litellm.port }}
+        {{- if .Values.tracecat.temporal.metrics.enabled }}
+        - protocol: TCP
+          port: {{ .Values.tracecat.temporal.metrics.port }}
+        {{- end }}
+{{- end }}

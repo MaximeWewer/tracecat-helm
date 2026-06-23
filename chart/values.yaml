@@ -1,0 +1,834 @@
+# Core secrets (REQUIRED)
+secrets:
+  # Name of existing Kubernetes Secret containing:
+  # - dbEncryptionKey: URL-safe base64 key for DB encryption
+  # - serviceKey: Service-to-service auth key (hex)
+  # - signingSecret: Webhook signing secret (hex)
+  # - userAuthSecret: Password reset/email verification token secret (hex)
+  # Leave empty when using secrets.create.tracecat.
+  # Defaults to the bridge-generated secret (see bridgeSecrets below). To use an
+  # external secrets manager (Vault, ESO, sealed-secrets, ...), have it create a
+  # Kubernetes Secret with these keys and point existingSecret at it.
+  existingSecret: "tracecat-secrets"
+
+  # Optional native K8s Secret manifests rendered by this chart (deploy-time
+  # values). Rendered as pre-install/pre-upgrade hooks so they exist before the
+  # migrations job. Prefer bridgeSecrets or an external secrets manager.
+  create:
+    tracecat:
+      enabled: false
+      name: "tracecat-secrets"
+      dbEncryptionKey: ""
+      serviceKey: ""
+      signingSecret: ""
+      userAuthSecret: ""
+
+    postgres:
+      enabled: false
+      # Keep this aligned with externalPostgres.auth.existingSecret unless you
+      # explicitly override the app DB secret name.
+      name: "tracecat-postgres-credentials"
+      username: ""
+      password: ""
+
+    redis:
+      enabled: false
+      # Keep this aligned with externalRedis.auth.existingSecret unless you
+      # explicitly override the Redis secret name.
+      name: "tracecat-redis-credentials"
+      url: ""
+
+# Pod annotations applied to all Tracecat workloads (e.g., Istio sidecar config).
+podAnnotations: {}
+
+# Extra environment injected into every Tracecat container (backend + ui + jobs),
+# appended after the chart-managed env. Escape hatch for any TRACECAT__/NEXT_*
+# variable not exposed as a dedicated value.
+#   extraEnv:
+#     - name: TRACECAT__SOME_NEW_FLAG
+#       value: "true"
+#     - name: SECRET_FROM_REF
+#       valueFrom:
+#         secretKeyRef: { name: my-secret, key: token }
+extraEnv: []
+
+# Extra envFrom (ConfigMap/Secret refs) added to every Tracecat container.
+#   extraEnvFrom:
+#     - secretRef: { name: tracecat-extra-config }
+#     - configMapRef: { name: tracecat-extra-cm }
+extraEnvFrom: []
+
+# Service account for Tracecat workloads (api/worker/executor/migrations/temporal-setup).
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Tracecat workloads do not call the Kubernetes API; drop the auto-mounted token.
+  automountServiceAccountToken: false
+
+# Image pull secrets for private registries (applied to every workload).
+imagePullSecrets: []
+  # - name: my-registry-creds
+
+# Extra labels merged onto every chart-managed resource (via the labels helper).
+commonLabels: {}
+
+# Keep this many old ReplicaSets per Deployment.
+revisionHistoryLimit: 3
+
+# Backend image configuration. Set `digest` (sha256:...) to pin by digest
+# (takes precedence over tag) for supply-chain integrity.
+image:
+  repository: ghcr.io/tracecathq/tracecat
+  pullPolicy: IfNotPresent
+  # tag: "" # Backend tag + app.kubernetes.io/version label. Defaults to Chart.AppVersion.
+  digest: ""
+
+# Frontend image configuration
+uiImage:
+  repository: ghcr.io/tracecathq/tracecat-ui
+  pullPolicy: IfNotPresent
+  # tag: "" # UI tag only. Defaults to Chart.AppVersion.
+  digest: ""
+
+# Image for the chart's wait-for-postgres init containers (needs `nc`).
+initImage:
+  repository: busybox
+  tag: "1.36"
+  pullPolicy: IfNotPresent
+  digest: ""
+
+# Pod-level securityContext applied to all Tracecat workloads.
+securityContext:
+  fsGroup: 1001
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level securityContext applied to all Tracecat containers.
+# Hardened by default (drop ALL, no priv-esc, read-only root). executor /
+# agent-executor (arbitrary action code) and litellm (writes a runtime config
+# under /app) run with a writable root filesystem; nsjail mode adds privileged.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+scheduling:
+  # Global pod scheduling defaults for all Tracecat workloads.
+  # Pins all workloads to a single Kubernetes CPU architecture when set.
+  # Common values: arm64, amd64 (x86_64).
+  # Set to "" to disable architecture pinning.
+  architecture: ""
+  nodeSelector: {}
+  # Explicit affinity (overrides the default anti-affinity below when set).
+  affinity: {}
+  # Default soft pod anti-affinity: spread a component's replicas across nodes.
+  podAntiAffinity:
+    enabled: true
+    topologyKey: kubernetes.io/hostname
+  topologySpreadConstraints: []
+  tolerations: []
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  host: tracecat.example.com
+  tls: []
+  split: false
+  ui:
+    annotations: {}
+  api:
+    annotations: {}
+  mcp:
+    annotations: {}
+
+# Gateway API (gateway.networking.k8s.io) — alternative to ingress/virtualService.
+# Requires the Gateway API CRDs + a controller; you provide the Gateway, the chart
+# emits HTTPRoute(s) attached to it. Disable ingress when using this.
+gatewayApi:
+  enabled: false
+  # HTTPRoute apiVersion (v1 is stable; use v1beta1 for older controllers).
+  apiVersion: gateway.networking.k8s.io/v1
+  # Parent Gateway(s) the route attaches to (required when enabled).
+  parentRefs: []
+    # - name: tracecat-gateway
+    #   namespace: gateway-system
+    #   sectionName: https
+  # Hostnames the route matches (empty = match all on the listener).
+  hostnames: []
+    # - tracecat.example.com
+  # Emit one HTTPRoute per component (api/ui/mcp) instead of a single combined route.
+  split: false
+  annotations: {}
+  api:
+    annotations: {}
+  ui:
+    annotations: {}
+  mcp:
+    annotations: {}
+
+# Istio VirtualService configuration (alternative to ingress).
+# Disable ingress when enabling VirtualServices.
+virtualService:
+  enabled: false
+  apiVersion: networking.istio.io/v1beta1
+
+  # Routes /api and / to Tracecat API/UI services.
+  tracecat:
+    enabled: true
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional webhook-only VirtualServices.
+  # Routes /_/webhooks and /webhooks to the Tracecat API service.
+  webhooks:
+    enabled: false
+    timeout: 5s
+    # Render one VirtualService per entry.
+    configs: []
+
+  # Optional Temporal Web UI VirtualServices for self-hosted Temporal.
+  temporal:
+    enabled: false
+    # Render one VirtualService per entry.
+    configs: []
+
+urls:
+  publicApp: ""
+  publicApi: ""
+  # Public URL for the MCP server (used for OIDC callbacks and MCP connect links).
+  # Defaults to https://<ingress.host>/mcp when empty.
+  publicMcp: ""
+  # Only used to rewrite presigned URLs for S3-compatible storage.
+  publicS3: ""
+
+tracecat:
+  appEnv: production
+  logLevel: "INFO"
+  allowOrigins: ""
+  sentryDsn: ""
+
+  sandbox:
+    # nsjail requires privileged + SYS_ADMIN + Unconfined seccomp, which breaks
+    # the hardened (drop ALL / runAsNonRoot) container securityContext. Disabled
+    # by default so executors run unprivileged. Set false only on nodes that can
+    # grant the sandbox its required capabilities.
+    disableNsjail: true
+
+  registrySync:
+    builtinUseInstalledSitePackages: true
+
+  blobStorage:
+    # Optional S3-compatible endpoint override (leave empty to inherit externalS3.endpoint).
+    endpoint: ""
+    buckets:
+      # Defaults to tracecat-attachments if unset.
+      attachments: ""
+      # Defaults to tracecat-registry if unset.
+      registry: ""
+      # Defaults to tracecat-workflow if unset.
+      workflow: ""
+      # Defaults to tracecat-agent if unset.
+      agent: ""
+    # Max retry attempts for blob storage operations (empty = app default).
+    maxAttempts: ""
+
+  saml:
+    enabled: false
+    idpMetadataUrl: ""
+    # Public Assertion Consumer Service URL (defaults to <publicApi>/auth/saml/acs in-app).
+    publicAcsUrl: ""
+    allowUnsolicited: "false"
+    acceptedTimeDiff: ""
+    authnRequestsSigned: "false"
+    verifySslEntity: "true"
+    verifySslMetadata: "true"
+    # PEM CA bundle (string) for IdP metadata/entity TLS verification.
+    caCerts: ""
+
+  auth:
+    # Comma-separated: basic, google_oauth, oidc, saml. Default "basic" so the
+    # chart is usable out of the box; add "oidc"/"saml" with the blocks below.
+    types: "basic"
+    allowedDomains: ""
+    superadminEmail: ""
+    # Minimum password length for basic auth.
+    minPasswordLength: 16
+
+  oidc:
+    # Shared OIDC config consumed by MCP; API only consumes these when
+    # tracecat.auth.types includes "oidc".
+    issuer: ""
+    clientId: ""
+    # clientSecret is rendered as a plaintext env value. For better hygiene, set
+    # existingSecret (+ existingSecretKey) to source it from a Kubernetes Secret.
+    clientSecret: ""
+    existingSecret: ""
+    existingSecretKey: "clientSecret"
+    scopes: ""
+
+  # Google OAuth (auth.types includes "google_oauth").
+  oauth:
+    clientId: ""
+    # As with OIDC, prefer existingSecret over the plaintext clientSecret.
+    clientSecret: ""
+    existingSecret: ""
+    existingSecretKey: "clientSecret"
+
+  # Token TTL (seconds) for executor service-to-service auth tokens.
+  executorTokenTtlSeconds: ""
+
+  # Workflow artifact retention (days); empty = app default.
+  workflowArtifactRetentionDays: ""
+
+  # Large-result externalization to blob storage.
+  externalization:
+    resultEnabled: ""
+    resultThresholdBytes: ""
+    collectionManifestsEnabled: ""
+
+  # Agent filesystem persistence.
+  agentFs:
+    archiveCacheMaxBytes: ""
+
+  # Local action registry repository.
+  localRepository:
+    enabled: ""
+    path: ""
+
+  mcp:
+    rateLimitRps: 2.0
+    rateLimitBurst: 10
+    toolTimeoutSeconds: 120
+    maxInputSizeBytes: 524288
+    fileTransferUrlExpirySeconds: 300
+    startupMaxAttempts: 3
+    startupRetryDelaySeconds: 2
+
+  temporal:
+    # Image used by the chart's Temporal-facing init/setup containers (worker
+    # wait-for-setup + temporal-setup Job). Keep aligned with temporal.server.image.tag.
+    adminToolsImage: "temporalio/admin-tools:1.31.1"
+    # Search attributes to create in Temporal (name: type)
+    # Types: Keyword, Text, Int, Double, Bool, Datetime, KeywordList
+    searchAttributes:
+      TracecatTriggerType: Keyword
+      TracecatTriggeredByUserId: Keyword
+      TracecatWorkspaceId: Keyword
+      TracecatAlias: Keyword
+      TracecatExecutionType: Keyword
+
+    # Temporal SDK metrics (Prometheus endpoint exposed by Tracecat processes that connect to Temporal).
+    # This is controlled via TEMPORAL__METRICS_PORT in Tracecat.
+    metrics:
+      enabled: false
+      port: 9000
+      path: /metrics
+      # Adds Prometheus scrape annotations to pods/services.
+      scrape: true
+      # Prometheus Operator ServiceMonitor for the per-component metrics Services
+      # (worker/executor/agent-worker/agent-executor). Requires the Prometheus
+      # Operator CRDs. Preferred over bundling a Prometheus/Grafana stack.
+      serviceMonitor:
+        enabled: false
+        interval: 30s
+        scrapeTimeout: ""
+        additionalLabels: {}
+
+enterprise:
+  # Enterprise-only feature flags (comma-separated).
+  featureFlags: ""
+  # Enable enterprise multi-tenant mode.
+  multiTenant: false
+
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1024Mi"
+
+api:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "4096Mi"
+    limits:
+      cpu: "2000m"
+      memory: "4096Mi"
+
+worker:
+  replicas: 4
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "2048Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2048Mi"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+executor:
+  replicas: 4
+  # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
+  backend: "ephemeral"
+  serviceAccount:
+    # Defaults to the shared app service account. Set create:true (or a name)
+    # for a dedicated executor identity.
+    create: false
+    name: ""
+    annotations: {}
+  resources:
+    requests:
+      cpu: "4000m"
+      memory: "8192Mi"
+    limits:
+      cpu: "4000m"
+      memory: "8192Mi"
+  queue: "shared-action-queue"
+  workerPoolSize: ""
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+# Agent worker = Temporal worker for the agent task queue (python -m tracecat.agent.worker).
+# Orchestrates AI-agent workflows; dispatches activities to the agent-executor + litellm.
+agentWorker:
+  replicas: 2
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+  # Not in the upstream sizing table (lighter Temporal worker); modeled on worker.
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2048Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2048Mi"
+  # Temporal-side queue this worker polls.
+  queue: "shared-agent-queue"
+  executorClientTimeout: "300"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+# Agent executor = sandboxed activity executor for agent actions
+# (python -m tracecat.agent.executor_worker). Talks to litellm for LLM calls.
+agentExecutor:
+  replicas: 2
+  backend: "ephemeral"
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "4096Mi"
+    limits:
+      cpu: "4000m"
+      memory: "16384Mi"
+  # Temporal-side queue this executor polls.
+  queue: "shared-agent-executor-queue"
+  workerPoolSize: ""
+  maxConcurrentActivities: "1"
+  llmProxyReadTimeout: "300"
+  # LLM gateway (litellm) client tuning.
+  llmGateway:
+    credentialCacheTtlSeconds: "60"
+    healthcheckIntervalSeconds: "30"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
+# LiteLLM proxy = unified LLM gateway (python -m tracecat.agent.litellm), :4000.
+# Agent worker/executor route model calls through it.
+litellm:
+  enabled: true
+  replicas: 1
+  port: 4000
+  serviceAccount:
+    # Defaults to the shared app service account. Set create:true (or a name)
+    # for a dedicated identity (e.g. workload identity) on the LLM gateway.
+    create: false
+    name: ""
+    annotations: {}
+  # Internal base URL agent workloads use to reach the proxy.
+  # Defaults to http://<fullname>-litellm:<port> when empty.
+  baseUrl: ""
+  resources:
+    requests:
+      cpu: "4000m"
+      memory: "8192Mi"
+    limits:
+      cpu: "4000m"
+      memory: "8192Mi"
+
+mcp:
+  enabled: false
+  replicas: 2
+  port: 8099
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "1024Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1024Mi"
+
+temporal:
+  enabled: true
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
+  # Bundled Cassandra/Elasticsearch were removed upstream in v1.0.0-rc.2; the
+  # datastore is configured under server.config.persistence.datastores (CNPG
+  # temporal PostgreSQL) below.
+  # The subchart's schema job defaults to Helm pre-install hooks, which would run
+  # before CloudNative-PG (a normal resource) provisions the temporal database —
+  # a deadlock. Run it as a normal Job instead (backoffLimit retries until the
+  # operator's primary is ready).
+  schema:
+    useHelmHooks: false
+  # Temporal image versions (pinned; latest stable = 1.31.1). Keep server and
+  # admintools aligned, and keep tracecat.temporal.adminToolsImage in sync.
+  admintools:
+    image:
+      tag: "1.31.1"
+  # Temporal Web UI (kept; exposed internally).
+  web:
+    enabled: false
+    additionalEnvSecretName: ""
+    image:
+      # Temporal UI is versioned independently from the server.
+      tag: "2.51.0"
+  # Reduce default replicas for a single-node install (subchart defaults to 1 each).
+  server:
+    replicaCount: 1
+    image:
+      tag: "1.31.1"
+    config:
+      persistence:
+        defaultStore: default
+        visibilityStore: visibility
+        numHistoryShards: 512
+        # External PostgreSQL = CNPG temporal cluster. connectAddr/user/existingSecret
+        # assume release name "tracecat" (services <fullname>-pg-temporal-rw). If you
+        # change the release/fullnameOverride, update these accordingly.
+        datastores:
+          default:
+            sql:
+              # postgres12_pgx = the modern pgx driver (recommended) vs legacy
+              # lib/pq "postgres12". Same schema; pluginName covers PG 12+.
+              pluginName: postgres12_pgx
+              databaseName: temporal
+              connectAddr: "tracecat-pg-temporal-rw:5432"
+              connectProtocol: tcp
+              user: temporal
+              existingSecret: "tracecat-pg-temporal-app"
+              secretKey: password
+              createDatabase: true
+              manageSchema: true
+              maxConns: 20
+              maxIdleConns: 10
+          visibility:
+            sql:
+              pluginName: postgres12_pgx
+              databaseName: temporal_visibility
+              connectAddr: "tracecat-pg-temporal-rw:5432"
+              connectProtocol: tcp
+              user: temporal
+              existingSecret: "tracecat-pg-temporal-app"
+              secretKey: password
+              createDatabase: true
+              manageSchema: true
+              maxConns: 20
+              maxIdleConns: 10
+      # Namespace configuration (must be under server.config, not server)
+      namespaces:
+        create: true
+        namespace:
+          - name: default
+            retention: 720h
+    # Optional archival settings for self-hosted Temporal (chart 1.0.0-rc.1).
+    # These are rendered from temporal/templates/server-configmap.yaml.
+    # archival:
+    #   history:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    #   visibility:
+    #     state: "enabled"
+    #     enableRead: true
+    #     provider:
+    #       s3store:
+    #         region: "us-east-1"
+    # namespaceDefaults:
+    #   archival:
+    #     history:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-history"
+    #     visibility:
+    #       state: "enabled"
+    #       URI: "s3://your-bucket/temporal-visibility"
+
+# App PostgreSQL = CNPG app cluster (see cnpg.app below). host/existingSecret
+# assume release name "tracecat" (CNPG creates service <cluster>-rw and secret
+# <cluster>-app with username/password keys).
+externalPostgres:
+  host: "tracecat-pg-app-rw"
+  port: 5432
+  database: tracecat
+  sslMode: "require"
+  auth:
+    existingSecret: "tracecat-pg-app-app" # CNPG-generated (keys: username, password)
+    username: ""
+  # Optional TLS CA verification for the DB connection (provide your own CA PEM).
+  tls:
+    verifyCA: false
+    caCert: ""
+
+# Redis = CloudPirates subchart. Bridged secret holds the full REDIS_URL.
+externalRedis:
+  auth:
+    existingSecret: "tracecat-redis-url" # key: url
+
+# S3 = RustFS subchart. Bridged secret holds accessKeyId/secretAccessKey.
+# Leave endpoint empty to auto-derive the bundled RustFS service
+# (http://<release>-rustfs-svc:9000); set it only for an external S3/MinIO.
+externalS3:
+  endpoint: ""
+  region: "us-east-1"
+  auth:
+    existingSecret: "tracecat-s3" # keys: accessKeyId, secretAccessKey
+
+externalTemporal:
+  enabled: false
+  clusterUrl: ""
+  clusterNamespace: ""
+  # Temporal task queue used by Tracecat workers.
+  clusterQueue: tracecat-task-queue
+  auth:
+    # Existing Secret with an `apiKey` key (raw API key string).
+    existingSecret: null
+
+# Stakater Reloader annotations for automatic pod restart on secret changes.
+# When enabled, pods restart automatically when their referenced secrets change.
+reloader:
+  # Off by default (avoids a hard dependency on the Stakater Reloader operator).
+  enabled: false
+
+# ===========================================================================
+# Autoscaling — KEDA, driven by Temporal task-queue backlog.
+# ===========================================================================
+# Requires the KEDA operator (+ its CRDs) installed cluster-wide. When a
+# component's autoscaling is enabled, KEDA owns its replica count (the static
+# <component>.replicas is ignored). Bundled Temporal only (no auth); for
+# Temporal Cloud + API key you must add a KEDA TriggerAuthentication.
+keda:
+  enabled: false
+  cooldownPeriod: 300
+  pollingInterval: 30
+
+autoscaling:
+  # KEDA temporal scaler queueTypes (comma list: workflow,activity). Empty =
+  # scaler default. Each component scales on the depth of the queue it polls.
+  worker:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    targetQueueSize: 5
+    queueTypes: ""
+  executor:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    targetQueueSize: 5
+    queueTypes: ""
+  agentWorker:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetQueueSize: 5
+    queueTypes: ""
+  agentExecutor:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetQueueSize: 5
+    queueTypes: ""
+
+# ===========================================================================
+# Operator-first dependencies added by this chart (intelowl-helm quality).
+# ===========================================================================
+
+# PostgreSQL via CloudNative-PG (the CNPG operator + CRDs must be installed first).
+# Two clusters: app + temporal, both PG 17 (latest CNPG image). Tracecat supports
+# PG 16+, Temporal supports PG 12+ (postgres12 plugin = "v12 and later"). CNPG
+# creates per-cluster Services (<name>-rw) and Secrets (<name>-app).
+cnpg:
+  enabled: true
+  # Annotate the Cluster CRs with helm.sh/resource-policy: keep so `helm uninstall`
+  # does NOT delete the databases (and their PVCs). Strongly recommended: the app
+  # DB is paired with the Fernet key in the core secret (see bridgeSecrets.retain).
+  retainOnDelete: true
+  # CNPG-native pod anti-affinity: spread instances across nodes (no-op at 1 instance).
+  enablePodAntiAffinity: true
+  # CNPG PodMonitor for Prometheus Operator (requires its CRDs).
+  monitoring:
+    enablePodMonitor: false
+  # Continuous backup + WAL archiving via barman objectStore (S3-compatible, e.g.
+  # the bundled RustFS). Off by default: needs a pre-created backup bucket.
+  # Per-cluster destination = <destinationPath>/<cluster name>.
+  backup:
+    enabled: false
+    destinationPath: "s3://tracecat-pg-backups"
+    # Empty = auto-derive the bundled RustFS endpoint; set for external S3.
+    endpointURL: ""
+    s3Credentials:
+      secretName: "tracecat-s3"
+      accessKeyIdKey: "accessKeyId"
+      secretAccessKeyKey: "secretAccessKey"
+    retentionPolicy: "30d"
+    walCompression: "gzip"
+    # Scheduled base backups (a ScheduledBackup CR per cluster) on top of WAL archiving.
+    scheduledBackup:
+      enabled: true
+      schedule: "0 0 3 * * *"   # 6-field cron (CNPG): every day at 03:00
+      immediate: true
+  app:
+    name: "tracecat-pg-app"
+    owner: tracecat
+    database: tracecat
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:17.4"
+    storage:
+      size: 5Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+  temporal:
+    name: "tracecat-pg-temporal"
+    owner: temporal
+    database: temporal
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:17.4"
+    storage:
+      size: 5Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # Temporal's schema manager creates the temporal/temporal_visibility DBs
+    # itself (datastores.*.sql.createDatabase=true), so the role needs CREATEDB.
+    postInitSQL:
+      - "ALTER ROLE temporal CREATEDB;"
+
+# Redis via CloudPirates subchart. Tracecat reads REDIS_URL from a bridged secret
+# (tracecat-redis-url). Auth disabled (internal, NetworkPolicy-gated).
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# S3 via RustFS subchart (standalone single-node). Shares tracecat-s3 for creds.
+rustfs:
+  enabled: true
+  mode:
+    standalone:
+      enabled: true
+    distributed:
+      enabled: false
+  replicaCount: 1
+  ingress:
+    enabled: false
+  secret:
+    existingSecret: "tracecat-s3"
+  config:
+    rustfs:
+      console_enable: "false"
+  # RustFS provisions a data PVC and a logs PVC via this storageClass.
+  # Default "local-path"; override per cluster (e.g. "standard" on minikube).
+  storageclass:
+    name: "local-path"
+    dataStorageSize: 5Gi
+    logStorageSize: 1Gi
+
+# ===========================================================================
+# Bridge secrets — chart-managed "glue" between bundled deps and Tracecat.
+# ===========================================================================
+# When enabled, the chart generates (generate-once via lookup, preserved across
+# upgrades) the secrets that wire CNPG/redis/rustfs to Tracecat:
+#   - <coreSecretName>   app secrets: dbEncryptionKey/serviceKey/signingSecret/userAuthSecret
+#   - <redisSecretName>  REDIS_URL for the bundled CloudPirates redis (key: url)
+#   - <s3SecretName>     S3 creds shared by Tracecat (accessKeyId/secretAccessKey)
+#                        and RustFS (RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY)
+# Disable when you provide these via secrets.existingSecret / External Secrets.
+bridgeSecrets:
+  enabled: true
+  # Annotate generated secrets with helm.sh/resource-policy: keep so `helm uninstall`
+  # keeps them — losing the core secret means losing the Fernet dbEncryptionKey
+  # (all DB-encrypted credentials become unrecoverable).
+  retain: true
+  coreSecretName: "tracecat-secrets"
+  redisSecretName: "tracecat-redis-url"
+  s3SecretName: "tracecat-s3"
+  # Empty = auto-derive the bundled CloudPirates redis service
+  # (<release>-redis); set only to point at an external/shared redis.
+  redisServiceName: ""
+  redisPort: 6379
+
+# ===========================================================================
+# NetworkPolicy — default-deny + scoped allows for Tracecat workloads.
+# ===========================================================================
+# Egress is restricted to the bundled deps (by port, in-namespace) + DNS. The
+# components reaching the public internet (LiteLLM -> LLM providers, API -> OIDC/
+# SAML IdP) also need outbound 443: allowExternalHttps opens it (RFC1918 ranges
+# excluded so it does not widen in-cluster reach). Ingress to API/UI/MCP is
+# allowed from the ingress controller namespace.
+networkPolicy:
+  enabled: true
+  # Namespace selector label for the ingress controller (allows ingress to api/ui).
+  ingressControllerNamespaceSelector: {}
+  # Allow outbound HTTPS (443) to the public internet (LLM providers, external
+  # IdP). Required for the agent/LiteLLM path and external OAuth/OIDC/SAML.
+  allowExternalHttps: true
+  # Extra egress (e.g. a specific OIDC IdP CIDR). DNS (53) is always allowed.
+  extraEgress: []
+
+# ===========================================================================
+# PodDisruptionBudgets for the stateless Tracecat workloads.
+# ===========================================================================
+podDisruptionBudget:
+  enabled: true
+  # Set maxUnavailable to use it instead of minAvailable (better with KEDA autoscaling).
+  minAvailable: 1
+  maxUnavailable: ""

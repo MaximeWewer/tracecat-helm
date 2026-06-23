@@ -1,0 +1,67 @@
+{{/*
+Alembic schema migrations.
+
+Run as a normal (non-hook) Job rather than a pre-install hook: the bundled
+PostgreSQL is provisioned asynchronously by the CloudNative-PG operator, so a
+pre-install hook would deadlock waiting for a database that Helm has not created
+yet. As a normal resource the Job is applied alongside the CNPG Cluster; its
+wait-for-postgres initContainer blocks until the operator's primary is ready.
+
+The Job name is revision-scoped so each `helm upgrade` creates a fresh,
+immutable Job; completed Jobs are reaped via ttlSecondsAfterFinished.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tracecat.fullname" . }}-migrations-{{ .Release.Revision }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "migrations") | nindent 6 }}
+      initContainers:
+        {{- include "tracecat.initWaitPostgres" . | nindent 8 }}
+      containers:
+        - name: migrations
+          image: "{{ include "tracecat.backendImage" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              export PGSSLMODE="${TRACECAT__DB_SSLMODE:-require}"
+              python3 -m alembic upgrade head
+          env:
+            {{- include "tracecat.env.migrations" . | nindent 12 }}
+            {{- include "tracecat.env.postgres" . | nindent 12 }}
+          {{- include "tracecat.extraEnvFrom" . | nindent 10 }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "tracecat.postgres.caVolumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "tracecat.postgres.caVolume" . | nindent 8 }}

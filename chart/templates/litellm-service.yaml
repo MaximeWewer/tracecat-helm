@@ -1,0 +1,19 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracecat.litellmServiceName" . }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.litellm.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "tracecat.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+{{- end }}

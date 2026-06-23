@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracecat.fullname" . }}-worker
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if not (and .Values.keda.enabled .Values.autoscaling.worker.enabled) }}
+  replicas: {{ .Values.worker.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) .Values.podAnnotations }}
+      annotations:
+        {{- if .Values.reloader.enabled }}
+        reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
+        prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "worker") | nindent 6 }}
+      initContainers:
+        {{- include "tracecat.initWaitPostgres" . | nindent 8 }}
+        {{- if .Values.temporal.enabled }}
+        - name: wait-for-temporal-setup
+          image: {{ include "tracecat.temporalAdminToolsImage" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for Temporal setup to complete..."
+              MAX_RETRIES=60
+              RETRY_COUNT=0
+
+              until temporal operator namespace describe "$TEMPORAL_NAMESPACE" 2>/dev/null; do
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "Temporal namespace not ready after $MAX_RETRIES retries"
+                  exit 1
+                fi
+                echo "Attempt $RETRY_COUNT/$MAX_RETRIES - Namespace not ready, waiting..."
+                sleep 5
+              done
+
+              echo "Temporal namespace exists, checking search attributes..."
+              RETRY_COUNT=0
+              while true; do
+                EXISTING_ATTRS=$(temporal operator search-attribute list 2>/dev/null || echo "")
+                MISSING_ATTRS=0
+                {{- range $name, $type := .Values.tracecat.temporal.searchAttributes }}
+                if ! echo "$EXISTING_ATTRS" | grep -q "{{ $name }}"; then
+                  MISSING_ATTRS=1
+                fi
+                {{- end }}
+                if [ $MISSING_ATTRS -eq 0 ]; then
+                  break
+                fi
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+                  echo "Search attributes not ready after retries"
+                  exit 1
+                fi
+                echo "Search attributes not ready, waiting..."
+                sleep 5
+              done
+
+              echo "Temporal setup complete, starting worker..."
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: {{ include "tracecat.temporalClusterUrl" . | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ include "tracecat.temporalNamespace" . | quote }}
+          {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ include "tracecat.backendImage" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "tracecat.dsl.worker"]
+          {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
+          {{- if .Values.tracecat.temporal.metrics.enabled }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.tracecat.temporal.metrics.port }}
+              protocol: TCP
+          {{- end }}
+          {{- include "tracecat.workerLivenessProbe" . | nindent 10 }}
+          env:
+            {{- include "tracecat.env.worker" . | nindent 12 }}
+            {{- include "tracecat.env.secrets" . | nindent 12 }}
+          {{- include "tracecat.extraEnvFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "tracecat.postgres.caVolumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "tracecat.postgres.caVolume" . | nindent 8 }}

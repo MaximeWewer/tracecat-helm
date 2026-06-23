@@ -1,0 +1,65 @@
+{{- if .Values.gatewayApi.enabled }}
+{{- $g := .Values.gatewayApi }}
+{{- if not $g.parentRefs }}
+{{- fail "gatewayApi.parentRefs is required when gatewayApi.enabled=true" }}
+{{- end }}
+{{- if $g.split }}
+{{- /* One HTTPRoute per component (api / mcp / ui). */ -}}
+{{- $comps := list
+  (dict "name" "api" "rule" (include "tracecat.gatewayApiRule" .) "ann" $g.api.annotations)
+}}
+{{- if .Values.mcp.enabled }}
+{{- $comps = append $comps (dict "name" "mcp" "rule" (include "tracecat.gatewayMcpRule" .) "ann" $g.mcp.annotations) }}
+{{- end }}
+{{- $comps = append $comps (dict "name" "ui" "rule" (include "tracecat.gatewayUiRule" .) "ann" $g.ui.annotations) }}
+{{- range $c := $comps }}
+{{- $annotations := mergeOverwrite (dict) $g.annotations $c.ann }}
+apiVersion: {{ $g.apiVersion }}
+kind: HTTPRoute
+metadata:
+  name: {{ include "tracecat.fullname" $ }}-{{ $c.name }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $g.parentRefs | nindent 4 }}
+  {{- with $g.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- $c.rule | nindent 4 }}
+---
+{{- end }}
+{{- else }}
+{{- /* Single combined HTTPRoute with path-based rules. */ -}}
+apiVersion: {{ $g.apiVersion }}
+kind: HTTPRoute
+metadata:
+  name: {{ include "tracecat.fullname" . }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+  {{- with $g.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $g.parentRefs | nindent 4 }}
+  {{- with $g.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- include "tracecat.gatewayApiRule" . | nindent 4 }}
+    {{- if .Values.mcp.enabled }}
+    {{- include "tracecat.gatewayMcpRule" . | nindent 4 }}
+    {{- end }}
+    {{- include "tracecat.gatewayUiRule" . | nindent 4 }}
+{{- end }}
+{{- end }}

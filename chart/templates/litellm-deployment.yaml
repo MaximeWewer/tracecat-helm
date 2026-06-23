@@ -1,0 +1,74 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracecat.litellmServiceName" . }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+spec:
+  replicas: {{ .Values.litellm.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: litellm
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: litellm
+      {{- if or .Values.reloader.enabled .Values.podAnnotations }}
+      annotations:
+        {{- if .Values.reloader.enabled }}
+        reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.litellmServiceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "litellm") | nindent 6 }}
+      initContainers:
+        {{- include "tracecat.initWaitPostgres" . | nindent 8 }}
+      containers:
+        - name: litellm
+          image: "{{ include "tracecat.backendImage" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "tracecat.agent.litellm"]
+          {{- /* litellm writes a runtime config under /app at startup → writable root. */}}
+          {{- include "tracecat.containerSecurityContextExec" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.litellm.port }}
+              protocol: TCP
+          env:
+            {{- include "tracecat.env.litellm" . | nindent 12 }}
+          {{- include "tracecat.extraEnvFrom" . | nindent 10 }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.litellm.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "tracecat.postgres.caVolumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "tracecat.postgres.caVolume" . | nindent 8 }}
+{{- end }}

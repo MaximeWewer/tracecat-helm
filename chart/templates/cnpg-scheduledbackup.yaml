@@ -1,0 +1,20 @@
+{{- if and .Values.cnpg.enabled .Values.cnpg.backup.enabled .Values.cnpg.backup.scheduledBackup.enabled }}
+{{- /* Scheduled base backups for each CNPG cluster (on top of WAL archiving). */ -}}
+{{- range $key := (list "app" "temporal") }}
+{{- $c := index $.Values.cnpg $key }}
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $c.name }}
+  labels:
+    {{- include "tracecat.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ printf "postgres-%s" $key }}
+spec:
+  schedule: {{ $.Values.cnpg.backup.scheduledBackup.schedule | quote }}
+  immediate: {{ $.Values.cnpg.backup.scheduledBackup.immediate }}
+  backupOwnerReference: self
+  cluster:
+    name: {{ $c.name }}
+---
+{{- end }}
+{{- end }}

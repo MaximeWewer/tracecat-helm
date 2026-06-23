@@ -1,0 +1,64 @@
+Tracecat {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+  PREREQUISITE: the CloudNative-PG operator must be installed cluster-wide
+     (this chart only ships the PostgreSQL Cluster CRs, not the operator):
+     helm repo add cnpg https://cloudnative-pg.github.io/charts
+     helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
+
+Components:
+  api · ui · worker · executor · agent-worker · agent-executor{{ if .Values.litellm.enabled }} · litellm{{ end }}{{ if .Values.mcp.enabled }} · mcp{{ end }}
+  + Temporal (subchart) · 2× CloudNative-PG (app/temporal) · Redis · RustFS (S3)
+
+Bootstrapping order (no manual steps needed):
+  1. CNPG provisions the app + temporal PostgreSQL clusters.
+  2. The migrations Job waits for Postgres, then runs `alembic upgrade head`.
+  3. Temporal schema job + the post-install temporal-setup hook register the
+     namespace and search attributes.
+  4. Workloads come up once their wait-for-postgres init succeeds.
+
+Watch rollout:
+  kubectl get pods -n {{ .Release.Namespace }} -w
+
+{{- if .Values.bridgeSecrets.enabled }}
+
+Generated secrets (preserved across upgrades):
+  - {{ .Values.bridgeSecrets.coreSecretName }}   (app keys: dbEncryptionKey/serviceKey/signingSecret/userAuthSecret/litellmMasterKey)
+  - {{ .Values.bridgeSecrets.redisSecretName }}   (REDIS_URL)
+  - {{ .Values.bridgeSecrets.s3SecretName }}   (S3 creds, shared with RustFS)
+{{- end }}
+
+Access the UI:
+{{- if .Values.ingress.enabled }}
+  Ingress host: {{ include "tracecat.urlScheme" . }}://{{ .Values.ingress.host }}
+  (ensure DNS / /etc/hosts points at your ingress controller)
+{{- else if .Values.gatewayApi.enabled }}
+  Gateway API HTTPRoute attached to: {{ range .Values.gatewayApi.parentRefs }}{{ .name }} {{ end }}
+  {{- with .Values.gatewayApi.hostnames }} (hostnames: {{ join ", " . }}){{ end }}
+{{- else }}
+  Port-forward:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "tracecat.fullname" . }}-ui 3000:3000
+  then open http://localhost:3000
+  (set urls.publicApp / urls.publicApi to localhost so the browser reaches the API)
+{{- end }}
+
+  API docs: <app-url>/api/docs
+{{- if regexMatch "(^|,)\\s*basic\\s*(,|$)" (.Values.tracecat.auth.types | default "") }}
+  Auth "basic": sign up at the UI with the superadmin email below to claim the
+  admin account (min password length {{ .Values.tracecat.auth.minPasswordLength }}):
+{{- else }}
+  Auth types "{{ .Values.tracecat.auth.types }}": log in via your IdP. Superadmin:
+{{- end }}
+    {{ .Values.tracecat.auth.superadminEmail | default "(tracecat.auth.superadminEmail not set!)" }}
+
+Temporal Web UI (internal):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "tracecat.temporalFullname" . }}-web 8080:8080
+{{- if .Values.keda.enabled }}
+
+Autoscaling: KEDA scales worker/executor/agent-worker/agent-executor on Temporal
+queue depth (requires the KEDA operator). `kubectl get scaledobject -n {{ .Release.Namespace }}`
+{{- end }}
+{{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.serviceMonitor.enabled }}
+
+Metrics: a ServiceMonitor is created for the worker metrics Services (requires the
+Prometheus Operator CRDs).
+{{- end }}

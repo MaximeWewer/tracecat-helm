@@ -1,0 +1,46 @@
+{{- if .Values.keda.enabled }}
+{{- /*
+KEDA ScaledObjects: scale the Temporal workers on task-queue backlog. Requires
+the KEDA operator + CRDs. When a component is enabled here, KEDA owns its
+replica count. Uses the bundled/self-hosted Temporal frontend with no auth; for
+Temporal Cloud add a TriggerAuthentication and reference it via authenticationRef.
+*/ -}}
+{{- $root := . }}
+{{- $endpoint := include "tracecat.temporalClusterUrl" . | trim }}
+{{- $namespace := include "tracecat.temporalNamespace" . | trim }}
+{{- $comps := list
+  (dict "name" "worker"         "cfg" .Values.autoscaling.worker        "queue" (include "tracecat.temporalQueue" . | trim))
+  (dict "name" "executor"       "cfg" .Values.autoscaling.executor      "queue" .Values.executor.queue)
+  (dict "name" "agent-worker"   "cfg" .Values.autoscaling.agentWorker   "queue" .Values.agentWorker.queue)
+  (dict "name" "agent-executor" "cfg" .Values.autoscaling.agentExecutor "queue" .Values.agentExecutor.queue)
+}}
+{{- range $c := $comps }}
+{{- if $c.cfg.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "tracecat.fullname" $root }}-{{ $c.name }}
+  labels:
+    {{- include "tracecat.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+spec:
+  scaleTargetRef:
+    name: {{ include "tracecat.fullname" $root }}-{{ $c.name }}
+  minReplicaCount: {{ $c.cfg.minReplicas }}
+  maxReplicaCount: {{ $c.cfg.maxReplicas }}
+  cooldownPeriod: {{ $root.Values.keda.cooldownPeriod }}
+  pollingInterval: {{ $root.Values.keda.pollingInterval }}
+  triggers:
+    - type: temporal
+      metadata:
+        endpoint: {{ $endpoint | quote }}
+        namespace: {{ $namespace | quote }}
+        taskQueue: {{ $c.queue | quote }}
+        targetQueueSize: {{ $c.cfg.targetQueueSize | quote }}
+        {{- if $c.cfg.queueTypes }}
+        queueTypes: {{ $c.cfg.queueTypes | quote }}
+        {{- end }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

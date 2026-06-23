@@ -1,0 +1,30 @@
+{{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.serviceMonitor.enabled }}
+{{- $sm := .Values.tracecat.temporal.metrics.serviceMonitor }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tracecat.fullname" . }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    {{- with $sm.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["worker", "executor", "agent-worker", "agent-executor"]
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+      interval: {{ $sm.interval | default "30s" | quote }}
+      {{- with $sm.scrapeTimeout }}
+      scrapeTimeout: {{ . | quote }}
+      {{- end }}
+{{- end }}

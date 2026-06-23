@@ -1,0 +1,35 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- $root := . }}
+{{- $components := list
+  (dict "name" "api"            "replicas" .Values.api.replicas            "enabled" true)
+  (dict "name" "ui"             "replicas" .Values.ui.replicas             "enabled" true)
+  (dict "name" "worker"         "replicas" .Values.worker.replicas         "enabled" true)
+  (dict "name" "executor"       "replicas" .Values.executor.replicas       "enabled" true)
+  (dict "name" "agent-worker"   "replicas" .Values.agentWorker.replicas    "enabled" true)
+  (dict "name" "agent-executor" "replicas" .Values.agentExecutor.replicas  "enabled" true)
+  (dict "name" "mcp"            "replicas" .Values.mcp.replicas            "enabled" .Values.mcp.enabled)
+  (dict "name" "litellm"        "replicas" .Values.litellm.replicas        "enabled" .Values.litellm.enabled)
+}}
+{{- range $c := $components }}
+{{- if and $c.enabled (gt (int $c.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tracecat.fullname" $root }}-{{ $c.name }}
+  labels:
+    {{- include "tracecat.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.name }}
+spec:
+  {{- if $root.Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ $root.Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ $root.Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $c.name }}
+---
+{{- end }}
+{{- end }}
+{{- end }}
