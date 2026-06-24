@@ -1,6 +1,6 @@
 # Tracecat Helm
 
-Operator-first, vendor-neutral, with the full component topology and bundled dependencies.
+Helm chart for [Tracecat](https://github.com/TracecatHQ/tracecat).
 
 ## Architecture
 
@@ -75,7 +75,7 @@ Kubernetes: `>=1.25.0-0`
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 0.8.0 |
 | https://go.temporal.io/helm-charts | temporal | 1.2.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.30.4 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.30.5 |
 
 ## Values
 
