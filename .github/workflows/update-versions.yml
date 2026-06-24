@@ -1,0 +1,129 @@
+name: Update Versions
+
+on:
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+          curl -sSLo helm-docs.tar.gz https://github.com/norwoodj/helm-docs/releases/download/v1.14.2/helm-docs_1.14.2_Linux_x86_64.tar.gz
+          tar -xf helm-docs.tar.gz helm-docs
+          sudo mv helm-docs /usr/local/bin/helm-docs
+
+      - name: Get latest Tracecat release tag
+        id: tracecat
+        run: |
+          # Tracecat publishes backend + UI images under one tag; the chart's
+          # appVersion drives both (image.tag / uiImage.tag default to it).
+          # Pick the highest stable beta tag, ignoring -rc / hotfix tags.
+          CORE=$(git ls-remote --tags --sort=-v:refname https://github.com/TracecatHQ/tracecat.git \
+            | grep -oE 'refs/tags/[^^]*$' | sed 's#refs/tags/##' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' | head -n1)
+          if [ -z "$CORE" ]; then
+            echo "Could not determine Tracecat release tag" >&2
+            exit 1
+          fi
+          echo "core=${CORE}" >> $GITHUB_OUTPUT
+          echo "Tracecat latest: ${CORE}"
+
+      - name: Get latest dependency chart versions
+        id: deps
+        run: |
+          # Track each subchart's latest published version; PR review gates merges.
+          REDIS=$(helm show chart oci://registry-1.docker.io/cloudpirates/redis 2>/dev/null | grep '^version:' | awk '{print $2}' || true)
+          echo "redis=${REDIS}" >> $GITHUB_OUTPUT
+
+          helm repo add temporal https://go.temporal.io/helm-charts >/dev/null 2>&1 || true
+          helm repo add rustfs https://charts.rustfs.com >/dev/null 2>&1 || true
+          helm repo update >/dev/null 2>&1 || true
+
+          TEMPORAL=$(helm show chart temporal/temporal 2>/dev/null | grep '^version:' | awk '{print $2}' || true)
+          RUSTFS=$(helm show chart rustfs/rustfs 2>/dev/null | grep '^version:' | awk '{print $2}' || true)
+          echo "temporal=${TEMPORAL}" >> $GITHUB_OUTPUT
+          echo "rustfs=${RUSTFS}" >> $GITHUB_OUTPUT
+          echo "redis: ${REDIS} | temporal: ${TEMPORAL} | rustfs: ${RUSTFS}"
+
+      - name: Update Chart.yaml
+        run: |
+          CORE="${{ steps.tracecat.outputs.core }}"
+          REDIS="${{ steps.deps.outputs.redis }}"
+          TEMPORAL="${{ steps.deps.outputs.temporal }}"
+          RUSTFS="${{ steps.deps.outputs.rustfs }}"
+
+          # appVersion tracks the Tracecat release (drives backend + UI image tags)
+          sed -i "s/^appVersion: .*/appVersion: \"${CORE}\"/" chart/Chart.yaml
+
+          # Dependency chart versions (version line follows each name line)
+          [ -n "$REDIS" ]    && sed -i "/name: redis/{n;s/version: .*/version: \"${REDIS}\"/}" chart/Chart.yaml
+          [ -n "$TEMPORAL" ] && sed -i "/name: temporal/{n;s/version: .*/version: \"${TEMPORAL}\"/}" chart/Chart.yaml
+          [ -n "$RUSTFS" ]   && sed -i "/name: rustfs/{n;s/version: .*/version: \"${RUSTFS}\"/}" chart/Chart.yaml
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Changes detected:"
+            git diff --stat
+          fi
+
+      - name: Align chart version with Tracecat
+        if: steps.changes.outputs.changed == 'true'
+        id: bump
+        run: |
+          # Base on the Tracecat release tag, suffix the run date for uniqueness.
+          BASE="${{ steps.tracecat.outputs.core }}"
+          BASE="${BASE#v}"
+          DATE=$(date -u +'%d-%m-%Y')
+          NEW_VERSION="${BASE}-${DATE}"
+          sed -i "s/^version: .*/version: ${NEW_VERSION}/" chart/Chart.yaml
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "Chart version set to: ${NEW_VERSION}"
+
+      - name: Regenerate chart README
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          # Regenerate chart/README.md (Requirements + Values tables) from the template.
+          helm-docs --chart-search-root chart
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update versions to Tracecat ${{ steps.tracecat.outputs.core }}"
+          title: "chore: update versions to Tracecat ${{ steps.tracecat.outputs.core }}"
+          body: |
+            ## Automated version update
+
+            | Component | Version |
+            |-----------|---------|
+            | Tracecat (appVersion) | `${{ steps.tracecat.outputs.core }}` |
+            | Chart version | `${{ steps.bump.outputs.version }}` |
+
+            ### Dependency chart updates
+            | Dependency | Version |
+            |-----------|---------|
+            | temporal | `${{ steps.deps.outputs.temporal }}` |
+            | redis | `${{ steps.deps.outputs.redis }}` |
+            | rustfs | `${{ steps.deps.outputs.rustfs }}` |
+          branch: chore/update-versions
+          delete-branch: true
