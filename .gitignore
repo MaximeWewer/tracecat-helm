@@ -1,0 +1,4 @@
+# Helm dependency build artifacts (pulled in CI)
+chart/charts/
+chart/Chart.lock
+*.tgz

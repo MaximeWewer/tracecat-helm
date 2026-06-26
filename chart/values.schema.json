@@ -226,7 +226,19 @@
         "redisSecretName": { "type": "string" },
         "s3SecretName": { "type": "string" },
         "redisServiceName": { "type": "string" },
-        "redisPort": { "type": "integer" }
+        "redisPort": { "type": "integer" },
+        "values": {
+          "type": "object",
+          "properties": {
+            "dbEncryptionKey": { "type": "string" },
+            "serviceKey": { "type": "string" },
+            "signingSecret": { "type": "string" },
+            "userAuthSecret": { "type": "string" },
+            "litellmMasterKey": { "type": "string" },
+            "s3AccessKeyId": { "type": "string" },
+            "s3SecretAccessKey": { "type": "string" }
+          }
+        }
       }
     },
     "networkPolicy": {

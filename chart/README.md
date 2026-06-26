@@ -42,7 +42,9 @@ helm install tracecat . -n tracecat --create-namespace \
   --set tracecat.auth.superadminEmail=admin@example.com
 ```
 
-Secrets are generated automatically (see `bridgeSecrets`). On first sign-in, register the superadmin email to claim the admin account.
+Secrets are generated automatically and preserved across upgrades via `lookup` (see `bridgeSecrets`). On first sign-in, register the superadmin email to claim the admin account.
+
+> **Argo CD / GitOps:** `lookup` returns nothing under `helm template`, so the generated values would re-roll on every sync — rotating the Fernet `dbEncryptionKey` and orphaning all encrypted data. With no secret manager, pin **every** field inline under `bridgeSecrets.values.*` (generate once, commit). Inline values take precedence over `lookup` and random, making renders deterministic. See the generation commands in `values.yaml`.
 
 ## Exposure (pick one)
 
@@ -66,6 +68,7 @@ helm test tracecat -n tracecat   # checks api /api/health
 - The Temporal subchart's schema job runs as a **normal Job** (`temporal.schema.useHelmHooks=false`) to avoid a deadlock with async CNPG provisioning.
 - Temporal SQL uses the modern `postgres12_pgx` (pgx) driver.
 - `executor` / `agent-executor` (arbitrary integration code) and `litellm` (writes a runtime config under `/app`) run with a **writable** root filesystem; all other components are read-only.
+- Under **Argo CD** (or any `helm template` flow) `lookup` is blind to the cluster — pin all `bridgeSecrets.values.*` inline, or the random fallback re-rolls secrets every sync.
 
 ## Requirements
 
@@ -142,6 +145,13 @@ Kubernetes: `>=1.25.0-0`
 | bridgeSecrets.redisServiceName | string | `""` |  |
 | bridgeSecrets.retain | bool | `true` |  |
 | bridgeSecrets.s3SecretName | string | `"tracecat-s3"` |  |
+| bridgeSecrets.values.dbEncryptionKey | string | `""` |  |
+| bridgeSecrets.values.litellmMasterKey | string | `""` |  |
+| bridgeSecrets.values.s3AccessKeyId | string | `""` |  |
+| bridgeSecrets.values.s3SecretAccessKey | string | `""` |  |
+| bridgeSecrets.values.serviceKey | string | `""` |  |
+| bridgeSecrets.values.signingSecret | string | `""` |  |
+| bridgeSecrets.values.userAuthSecret | string | `""` |  |
 | cnpg.app.database | string | `"tracecat"` |  |
 | cnpg.app.imageName | string | `"ghcr.io/cloudnative-pg/postgresql:17.4"` |  |
 | cnpg.app.instances | int | `1` |  |

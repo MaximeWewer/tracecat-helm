@@ -805,6 +805,26 @@ bridgeSecrets:
   # (<release>-redis); set only to point at an external/shared redis.
   redisServiceName: ""
   redisPort: 6379
+  # Inline secret values — pin every sensitive value in Git when no secret
+  # manager is available. REQUIRED under Argo CD (or any `helm template` flow):
+  # there `lookup` returns nothing, so leaving these empty re-rolls the random
+  # values on every sync — rotating the Fernet dbEncryptionKey and orphaning all
+  # encrypted data. Generate once, then keep these stable.
+  # Precedence per field: inline value > existing in-cluster secret > random.
+  # Suggested generation (run once, commit the output):
+  #   dbEncryptionKey   = openssl rand -base64 24 | tr '+/' '-_'   (Fernet key)
+  #   serviceKey/signingSecret/userAuthSecret = openssl rand -hex 32
+  #   litellmMasterKey  = sk-$(openssl rand -hex 24)
+  #   s3AccessKeyId     = tracecat-$(openssl rand -hex 8)
+  #   s3SecretAccessKey = openssl rand -hex 20
+  values:
+    dbEncryptionKey: ""
+    serviceKey: ""
+    signingSecret: ""
+    userAuthSecret: ""
+    litellmMasterKey: ""
+    s3AccessKeyId: ""
+    s3SecretAccessKey: ""
 
 # ===========================================================================
 # NetworkPolicy — default-deny + scoped allows for Tracecat workloads.
