@@ -30,11 +30,17 @@ jobs:
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "owner=${OWNER_LOWER}" >> $GITHUB_OUTPUT
 
-      - name: Get chart version
+      - name: Compute release version
         id: chart
         run: |
-          VERSION=$(grep '^version:' chart/Chart.yaml | awk '{print $2}')
+          # Version = Tracecat appVersion + the release date (today), so the
+          # published tag reflects when it was released, not when the PR was cut.
+          BASE=$(grep '^appVersion:' chart/Chart.yaml | awk '{print $2}' | tr -d '"')
+          BASE="${BASE#v}"
+          DATE=$(date -u +'%d-%m-%Y')
+          VERSION="${BASE}-${DATE}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
 
       - name: Login to GitHub Container Registry
         run: |
@@ -46,7 +52,7 @@ jobs:
 
       - name: Package Helm chart
         run: |
-          helm package chart/
+          helm package chart/ --version "${{ steps.chart.outputs.version }}"
 
       - name: Push Helm chart to GHCR
         run: |
