@@ -2,13 +2,8 @@ apiVersion: v2
 name: tracecat
 description: Tracecat (SOAR / AI automation)
 type: application
-<<<<<<< HEAD
-version: 1.0.0-beta.49-29-06-2026
-appVersion: "1.0.0-beta.49"
-=======
 version: 1.0.0-beta.50-06-07-2026
 appVersion: "1.0.0-beta.50"
->>>>>>> 0a52957 (feat(env): add Temporal payload encryption + complete LLM gateway knobs)
 kubeVersion: ">=1.25.0-0"
 home: https://tracecat.com
 icon: https://avatars.githubusercontent.com/u/142434153?s=200&v=4
