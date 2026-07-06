@@ -344,6 +344,23 @@ tracecat:
         scrapeTimeout: ""
         additionalLabels: {}
 
+    # End-to-end encryption of Temporal workflow payloads (TEMPORAL__PAYLOAD_ENCRYPTION_*).
+    # Applied to every Tracecat process that connects to Temporal (api, worker,
+    # executor, agent worker/executor, mcp). Disabled by default.
+    payloadEncryption:
+      enabled: false
+      # Keyring holding the encryption key(s). Holds key material — prefer
+      # existingSecret over an inline value. Ignored unless enabled.
+      keyring: ""
+      # Source the keyring from an existing Secret instead of an inline value.
+      existingSecret: ""
+      existingSecretKey: keyring
+      # ARN of a cloud KMS keyring (AWS KMS), when keys are managed externally.
+      keyringArn: ""
+      # Decryption key cache tuning.
+      cacheTtlSeconds: "3600"
+      cacheMaxItems: "128"
+
 enterprise:
   # Enterprise-only feature flags (comma-separated).
   featureFlags: ""
@@ -454,6 +471,14 @@ agentExecutor:
   llmGateway:
     credentialCacheTtlSeconds: "60"
     healthcheckIntervalSeconds: "30"
+    healthcheckTimeoutSeconds: "2"
+    failureThreshold: "3"
+    statusLogIntervalSeconds: "30"
+    # httpx client timeouts; empty = use the app's built-in default.
+    connectTimeoutSeconds: ""
+    readTimeoutSeconds: ""
+    writeTimeoutSeconds: ""
+    poolTimeoutSeconds: ""
   contextCompression:
     enabled: false
     thresholdKb: 16

@@ -84,6 +84,34 @@ Temporal environment variables (shared by api, worker, executor)
       key: apiKey
 {{- end }}
 {{- end }}
+{{- with .Values.tracecat.temporal.payloadEncryption }}
+{{- if .enabled }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED
+  value: "true"
+{{- if .existingSecret }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING
+  valueFrom:
+    secretKeyRef:
+      name: {{ .existingSecret }}
+      key: {{ .existingSecretKey }}
+{{- else if .keyring }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING
+  value: {{ .keyring | quote }}
+{{- end }}
+{{- if .keyringArn }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
+  value: {{ .keyringArn | quote }}
+{{- end }}
+{{- if .cacheTtlSeconds }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
+  value: {{ .cacheTtlSeconds | quote }}
+{{- end }}
+{{- if .cacheMaxItems }}
+- name: TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS
+  value: {{ .cacheMaxItems | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -453,10 +481,40 @@ Merges: common + temporal + blobStorage + postgres + redis + sandbox + agent-exe
   value: {{ .Values.agentExecutor.maxConcurrentActivities | quote }}
 - name: TRACECAT__LLM_PROXY_READ_TIMEOUT
   value: {{ .Values.agentExecutor.llmProxyReadTimeout | quote }}
+{{- with .Values.agentExecutor.llmGateway }}
 - name: TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS
-  value: {{ .Values.agentExecutor.llmGateway.credentialCacheTtlSeconds | quote }}
+  value: {{ .credentialCacheTtlSeconds | quote }}
 - name: TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS
-  value: {{ .Values.agentExecutor.llmGateway.healthcheckIntervalSeconds | quote }}
+  value: {{ .healthcheckIntervalSeconds | quote }}
+{{- if .healthcheckTimeoutSeconds }}
+- name: TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
+  value: {{ .healthcheckTimeoutSeconds | quote }}
+{{- end }}
+{{- if .failureThreshold }}
+- name: TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD
+  value: {{ .failureThreshold | quote }}
+{{- end }}
+{{- if .statusLogIntervalSeconds }}
+- name: TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS
+  value: {{ .statusLogIntervalSeconds | quote }}
+{{- end }}
+{{- if .connectTimeoutSeconds }}
+- name: TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS
+  value: {{ .connectTimeoutSeconds | quote }}
+{{- end }}
+{{- if .readTimeoutSeconds }}
+- name: TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS
+  value: {{ .readTimeoutSeconds | quote }}
+{{- end }}
+{{- if .writeTimeoutSeconds }}
+- name: TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS
+  value: {{ .writeTimeoutSeconds | quote }}
+{{- end }}
+{{- if .poolTimeoutSeconds }}
+- name: TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS
+  value: {{ .poolTimeoutSeconds | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
