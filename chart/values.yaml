@@ -402,8 +402,11 @@ worker:
 
 executor:
   replicas: 4
-  # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
-  backend: "ephemeral"
+  # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default).
+  # 'direct' pairs with sandbox.disableNsjail:true (unprivileged, PID-namespace
+  # isolation only). 'pool'/'ephemeral' require disableNsjail:false + privileged
+  # nodes (SYS_ADMIN + unconfined seccomp) for real nsjail sandboxing.
+  backend: "direct"
   serviceAccount:
     # Defaults to the shared app service account. Set create:true (or a name)
     # for a dedicated executor identity.
@@ -450,7 +453,8 @@ agentWorker:
 # (python -m tracecat.agent.executor_worker). Talks to litellm for LLM calls.
 agentExecutor:
   replicas: 2
-  backend: "ephemeral"
+  # See executor.backend: 'direct' pairs with sandbox.disableNsjail:true.
+  backend: "direct"
   serviceAccount:
     create: false
     name: ""
