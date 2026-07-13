@@ -77,14 +77,14 @@ Kubernetes: `>=1.25.0-0`
 | Repository | Name | Version |
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 0.8.0 |
-| https://go.temporal.io/helm-charts | temporal | 1.5.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.30.7 |
+| https://go.temporal.io/helm-charts | temporal | 1.6.0 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.32.1 |
 
 ## Values
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| agentExecutor.backend | string | `"ephemeral"` |  |
+| agentExecutor.backend | string | `"direct"` |  |
 | agentExecutor.contextCompression.enabled | bool | `false` |  |
 | agentExecutor.contextCompression.thresholdKb | int | `16` |  |
 | agentExecutor.llmGateway.connectTimeoutSeconds | string | `""` |  |
@@ -203,7 +203,7 @@ Kubernetes: `>=1.25.0-0`
 | containerSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | enterprise.featureFlags | string | `""` |  |
 | enterprise.multiTenant | bool | `false` |  |
-| executor.backend | string | `"ephemeral"` |  |
+| executor.backend | string | `"direct"` |  |
 | executor.contextCompression.enabled | bool | `false` |  |
 | executor.contextCompression.thresholdKb | int | `16` |  |
 | executor.queue | string | `"shared-action-queue"` |  |
