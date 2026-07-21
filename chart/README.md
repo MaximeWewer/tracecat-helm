@@ -31,7 +31,7 @@ Plus a `migrations` Job (alembic) and a `temporal-setup` post-install hook.
   ```
 - Optional, only if you enable the matching feature:
   - **KEDA** operator — for `keda.enabled` autoscaling.
-  - **Prometheus Operator** CRDs — for `tracecat.temporal.metrics.serviceMonitor.enabled` / `cnpg.monitoring.enablePodMonitor`.
+  - **Prometheus Operator** CRDs — for anything under `metrics.*` (see [Metrics](#metrics)).
   - **Gateway API** CRDs + controller (Kubernetes 1.29+ for `v1`) — for `gatewayApi.enabled`.
 
 ## Install
@@ -55,6 +55,70 @@ Secrets are generated automatically and preserved across upgrades via `lookup` (
 | Istio | `virtualService.enabled` | VirtualService(s). |
 
 The UI enforces a same-origin CSP — serve UI and API on the **same host** (any of the above), not via split port-forwards.
+
+## Metrics
+
+Everything lives under the top-level `metrics.*` section, one block per app, all off by default. The chart only exposes endpoints and emits `ServiceMonitor`/`PodMonitor` CRs — it bundles no Prometheus or Grafana.
+
+| App | Key | Endpoint | What you get |
+|-----|-----|----------|--------------|
+| Tracecat (api, worker, executor, agent-worker, agent-executor, mcp) | `metrics.tracecat.*` | `:9000/metrics` per pod | Temporal SDK metrics (workflow/activity/task-queue latencies, poller counts) |
+| Temporal server | `metrics.temporal.enabled` | `:9090/metrics` on the subchart's headless Services | Server-side Temporal metrics |
+| Redis | `metrics.redis.enabled` | `:9121/metrics` (`redis_exporter` sidecar) | Also needs `redis.metrics.enabled=true` |
+| PostgreSQL (CNPG) | `metrics.cnpg.enabled` | operator-managed `PodMonitor` | Both clusters (app + temporal) |
+
+Minimal opt-in:
+
+```yaml
+metrics:
+  serviceMonitor:
+    # kube-prometheus-stack only adopts ServiceMonitors carrying its release label.
+    additionalLabels: { release: kube-prometheus-stack }
+  tracecat:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  temporal: { enabled: true }
+  cnpg: { enabled: true }
+```
+
+`metrics.serviceMonitor` holds the shared scrape defaults (`interval`, `scrapeTimeout`, `additionalLabels`); each block's own fields override them (labels are merged).
+
+### How Tracecat metrics actually work
+
+Tracecat serves **no** `/metrics` HTTP route. Its only Prometheus endpoint is the Temporal SDK exporter, armed per-process by `TEMPORAL__METRICS_PORT` — so every process that opens a Temporal client serves it. `metrics.tracecat.components.*` picks which ones; each enabled component gets a `metrics` container port, a `<release>-<component>-metrics` Service, and an endpoint on the shared ServiceMonitor.
+
+- **`api`** binds the exporter during startup (its lifespan registers Temporal search attributes), so it is a reliable target.
+- **`mcp`** opens its Temporal client only on the first Temporal-backed tool call, so the port does not bind at startup and the target stays down until traffic arrives. Off by default for that reason.
+- The Temporal workers' `livenessProbe` is a TCP check on this port — it exists only when the component's exporter is enabled.
+
+### NetworkPolicy
+
+`networkPolicy` admits same-namespace pods only, so a Prometheus running elsewhere cannot scrape. Declare it explicitly — this opens the metrics port and nothing else:
+
+```yaml
+networkPolicy:
+  metricsScrapeFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+```
+
+### Not covered
+
+- **RustFS (S3)** exposes no Prometheus endpoint; it only pushes OTLP. Route it through an OTel Collector via `rustfs.config.rustfs.obs_endpoint.*`.
+- **LiteLLM gateway.** LiteLLM does serve `/metrics` via its `prometheus` callback, but the Tracecat image ships no `prometheus_client` (not a dependency of `litellm[proxy]==1.89.1`) and LiteLLM imports it unguarded — enabling the callback crashes the gateway at config load. Needs an upstream image change.
+
+### Migrating from `tracecat.temporal.metrics.*`
+
+| Old | New |
+|-----|-----|
+| `tracecat.temporal.metrics.enabled` | `metrics.tracecat.enabled` |
+| `tracecat.temporal.metrics.port` / `.path` / `.scrape` | `metrics.tracecat.port` / `.path` / `.scrape` |
+| `tracecat.temporal.metrics.serviceMonitor.*` | `metrics.tracecat.serviceMonitor.*` |
+| `cnpg.monitoring.enablePodMonitor` | `metrics.cnpg.enabled` |
+
+The old keys are rejected with a migration message rather than silently ignored.
 
 ## Test
 
@@ -182,7 +246,6 @@ Kubernetes: `>=1.25.0-0`
 | cnpg.backup.walCompression | string | `"gzip"` |  |
 | cnpg.enablePodAntiAffinity | bool | `true` |  |
 | cnpg.enabled | bool | `true` |  |
-| cnpg.monitoring.enablePodMonitor | bool | `false` |  |
 | cnpg.retainOnDelete | bool | `true` |  |
 | cnpg.temporal.database | string | `"temporal"` |  |
 | cnpg.temporal.imageName | string | `"ghcr.io/cloudnative-pg/postgresql:17.4"` |  |
@@ -282,16 +345,47 @@ Kubernetes: `>=1.25.0-0`
 | mcp.resources.limits.memory | string | `"1024Mi"` |  |
 | mcp.resources.requests.cpu | string | `"1000m"` |  |
 | mcp.resources.requests.memory | string | `"1024Mi"` |  |
+| metrics.cnpg.enabled | bool | `false` |  |
+| metrics.redis.additionalLabels | object | `{}` |  |
+| metrics.redis.enabled | bool | `false` |  |
+| metrics.redis.interval | string | `""` |  |
+| metrics.redis.path | string | `"/metrics"` |  |
+| metrics.redis.scrapeTimeout | string | `""` |  |
+| metrics.serviceMonitor.additionalLabels | object | `{}` |  |
+| metrics.serviceMonitor.interval | string | `"30s"` |  |
+| metrics.serviceMonitor.scrapeTimeout | string | `""` |  |
+| metrics.temporal.additionalLabels | object | `{}` |  |
+| metrics.temporal.enabled | bool | `false` |  |
+| metrics.temporal.interval | string | `""` |  |
+| metrics.temporal.path | string | `"/metrics"` |  |
+| metrics.temporal.scrapeTimeout | string | `""` |  |
+| metrics.tracecat.components.agentExecutor | bool | `true` |  |
+| metrics.tracecat.components.agentWorker | bool | `true` |  |
+| metrics.tracecat.components.api | bool | `true` |  |
+| metrics.tracecat.components.executor | bool | `true` |  |
+| metrics.tracecat.components.mcp | bool | `false` |  |
+| metrics.tracecat.components.worker | bool | `true` |  |
+| metrics.tracecat.enabled | bool | `false` |  |
+| metrics.tracecat.path | string | `"/metrics"` |  |
+| metrics.tracecat.port | int | `9000` |  |
+| metrics.tracecat.scrape | bool | `true` |  |
+| metrics.tracecat.serviceMonitor.additionalLabels | object | `{}` |  |
+| metrics.tracecat.serviceMonitor.enabled | bool | `false` |  |
+| metrics.tracecat.serviceMonitor.interval | string | `""` |  |
+| metrics.tracecat.serviceMonitor.scrapeTimeout | string | `""` |  |
 | networkPolicy.allowExternalHttps | bool | `true` |  |
 | networkPolicy.enabled | bool | `true` |  |
 | networkPolicy.extraEgress | list | `[]` |  |
 | networkPolicy.ingressControllerNamespaceSelector | object | `{}` |  |
+| networkPolicy.metricsScrapeFrom | list | `[]` |  |
 | podAnnotations | object | `{}` |  |
 | podDisruptionBudget.enabled | bool | `true` |  |
 | podDisruptionBudget.maxUnavailable | string | `""` |  |
 | podDisruptionBudget.minAvailable | int | `1` |  |
 | redis.auth.enabled | bool | `false` |  |
+| redis.auth.metrics | bool | `false` |  |
 | redis.enabled | bool | `true` |  |
+| redis.metrics.enabled | bool | `false` |  |
 | redis.persistence.enabled | bool | `true` |  |
 | redis.persistence.size | string | `"2Gi"` |  |
 | reloader.enabled | bool | `false` |  |
@@ -423,14 +517,6 @@ Kubernetes: `>=1.25.0-0`
 | tracecat.sandbox.disableNsjail | bool | `true` |  |
 | tracecat.sentryDsn | string | `""` |  |
 | tracecat.temporal.adminToolsImage | string | `"temporalio/admin-tools:1.31.1"` |  |
-| tracecat.temporal.metrics.enabled | bool | `false` |  |
-| tracecat.temporal.metrics.path | string | `"/metrics"` |  |
-| tracecat.temporal.metrics.port | int | `9000` |  |
-| tracecat.temporal.metrics.scrape | bool | `true` |  |
-| tracecat.temporal.metrics.serviceMonitor.additionalLabels | object | `{}` |  |
-| tracecat.temporal.metrics.serviceMonitor.enabled | bool | `false` |  |
-| tracecat.temporal.metrics.serviceMonitor.interval | string | `"30s"` |  |
-| tracecat.temporal.metrics.serviceMonitor.scrapeTimeout | string | `""` |  |
 | tracecat.temporal.payloadEncryption.cacheMaxItems | string | `"128"` |  |
 | tracecat.temporal.payloadEncryption.cacheTtlSeconds | string | `"3600"` |  |
 | tracecat.temporal.payloadEncryption.enabled | bool | `false` |  |

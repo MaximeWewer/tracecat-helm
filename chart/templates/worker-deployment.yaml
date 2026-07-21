@@ -19,15 +19,13 @@ spec:
       labels:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: worker
-      {{- if or .Values.reloader.enabled (and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape) .Values.podAnnotations }}
+      {{- if include "tracecat.metrics.needsPodAnnotations" (dict "root" . "component" "worker") }}
       annotations:
         {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
         {{- end }}
-        {{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.scrape }}
-        prometheus.io/scrape: "true"
-        prometheus.io/port: {{ .Values.tracecat.temporal.metrics.port | quote }}
-        prometheus.io/path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
+        {{- with (include "tracecat.metrics.scrapeAnnotations" (dict "root" . "component" "worker")) }}
+        {{- . | nindent 8 }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -102,13 +100,11 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "tracecat.dsl.worker"]
           {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
-          {{- if .Values.tracecat.temporal.metrics.enabled }}
+          {{- with (include "tracecat.metrics.containerPort" (dict "root" . "component" "worker")) }}
           ports:
-            - name: metrics
-              containerPort: {{ .Values.tracecat.temporal.metrics.port }}
-              protocol: TCP
+            {{- . | nindent 12 }}
           {{- end }}
-          {{- include "tracecat.workerLivenessProbe" . | nindent 10 }}
+          {{- include "tracecat.workerLivenessProbe" (dict "root" . "component" "worker") | nindent 10 }}
           env:
             {{- include "tracecat.env.worker" . | nindent 12 }}
             {{- include "tracecat.env.secrets" . | nindent 12 }}

@@ -57,8 +57,15 @@ Temporal Web UI (internal):
 Autoscaling: KEDA scales worker/executor/agent-worker/agent-executor on Temporal
 queue depth (requires the KEDA operator). `kubectl get scaledobject -n {{ .Release.Namespace }}`
 {{- end }}
-{{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.serviceMonitor.enabled }}
+{{- if .Values.metrics.tracecat.enabled }}
 
-Metrics: a ServiceMonitor is created for the worker metrics Services (requires the
-Prometheus Operator CRDs).
+Metrics: the Temporal SDK exporter is on for {{ include "tracecat.metrics.enabledComponentLabels" . | fromJsonArray | join ", " }}
+on port {{ .Values.metrics.tracecat.port }}{{ .Values.metrics.tracecat.path | default "/metrics" }}.
+{{- if not .Values.metrics.tracecat.serviceMonitor.enabled }}
+Set metrics.tracecat.serviceMonitor.enabled=true to have Prometheus scrape them.
+{{- end }}
+{{- end }}
+{{- if or .Values.metrics.tracecat.serviceMonitor.enabled .Values.metrics.temporal.enabled .Values.metrics.redis.enabled }}
+ServiceMonitors created (Prometheus Operator CRDs required):
+`kubectl get servicemonitor -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}`
 {{- end }}

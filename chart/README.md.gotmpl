@@ -31,7 +31,7 @@ Plus a `migrations` Job (alembic) and a `temporal-setup` post-install hook.
   ```
 - Optional, only if you enable the matching feature:
   - **KEDA** operator — for `keda.enabled` autoscaling.
-  - **Prometheus Operator** CRDs — for `tracecat.temporal.metrics.serviceMonitor.enabled` / `cnpg.monitoring.enablePodMonitor`.
+  - **Prometheus Operator** CRDs — for anything under `metrics.*` (see [Metrics](#metrics)).
   - **Gateway API** CRDs + controller (Kubernetes 1.29+ for `v1`) — for `gatewayApi.enabled`.
 
 ## Install
@@ -55,6 +55,70 @@ Secrets are generated automatically and preserved across upgrades via `lookup` (
 | Istio | `virtualService.enabled` | VirtualService(s). |
 
 The UI enforces a same-origin CSP — serve UI and API on the **same host** (any of the above), not via split port-forwards.
+
+## Metrics
+
+Everything lives under the top-level `metrics.*` section, one block per app, all off by default. The chart only exposes endpoints and emits `ServiceMonitor`/`PodMonitor` CRs — it bundles no Prometheus or Grafana.
+
+| App | Key | Endpoint | What you get |
+|-----|-----|----------|--------------|
+| Tracecat (api, worker, executor, agent-worker, agent-executor, mcp) | `metrics.tracecat.*` | `:9000/metrics` per pod | Temporal SDK metrics (workflow/activity/task-queue latencies, poller counts) |
+| Temporal server | `metrics.temporal.enabled` | `:9090/metrics` on the subchart's headless Services | Server-side Temporal metrics |
+| Redis | `metrics.redis.enabled` | `:9121/metrics` (`redis_exporter` sidecar) | Also needs `redis.metrics.enabled=true` |
+| PostgreSQL (CNPG) | `metrics.cnpg.enabled` | operator-managed `PodMonitor` | Both clusters (app + temporal) |
+
+Minimal opt-in:
+
+```yaml
+metrics:
+  serviceMonitor:
+    # kube-prometheus-stack only adopts ServiceMonitors carrying its release label.
+    additionalLabels: { release: kube-prometheus-stack }
+  tracecat:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  temporal: { enabled: true }
+  cnpg: { enabled: true }
+```
+
+`metrics.serviceMonitor` holds the shared scrape defaults (`interval`, `scrapeTimeout`, `additionalLabels`); each block's own fields override them (labels are merged).
+
+### How Tracecat metrics actually work
+
+Tracecat serves **no** `/metrics` HTTP route. Its only Prometheus endpoint is the Temporal SDK exporter, armed per-process by `TEMPORAL__METRICS_PORT` — so every process that opens a Temporal client serves it. `metrics.tracecat.components.*` picks which ones; each enabled component gets a `metrics` container port, a `<release>-<component>-metrics` Service, and an endpoint on the shared ServiceMonitor.
+
+- **`api`** binds the exporter during startup (its lifespan registers Temporal search attributes), so it is a reliable target.
+- **`mcp`** opens its Temporal client only on the first Temporal-backed tool call, so the port does not bind at startup and the target stays down until traffic arrives. Off by default for that reason.
+- The Temporal workers' `livenessProbe` is a TCP check on this port — it exists only when the component's exporter is enabled.
+
+### NetworkPolicy
+
+`networkPolicy` admits same-namespace pods only, so a Prometheus running elsewhere cannot scrape. Declare it explicitly — this opens the metrics port and nothing else:
+
+```yaml
+networkPolicy:
+  metricsScrapeFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+```
+
+### Not covered
+
+- **RustFS (S3)** exposes no Prometheus endpoint; it only pushes OTLP. Route it through an OTel Collector via `rustfs.config.rustfs.obs_endpoint.*`.
+- **LiteLLM gateway.** LiteLLM does serve `/metrics` via its `prometheus` callback, but the Tracecat image ships no `prometheus_client` (not a dependency of `litellm[proxy]==1.89.1`) and LiteLLM imports it unguarded — enabling the callback crashes the gateway at config load. Needs an upstream image change.
+
+### Migrating from `tracecat.temporal.metrics.*`
+
+| Old | New |
+|-----|-----|
+| `tracecat.temporal.metrics.enabled` | `metrics.tracecat.enabled` |
+| `tracecat.temporal.metrics.port` / `.path` / `.scrape` | `metrics.tracecat.port` / `.path` / `.scrape` |
+| `tracecat.temporal.metrics.serviceMonitor.*` | `metrics.tracecat.serviceMonitor.*` |
+| `cnpg.monitoring.enablePodMonitor` | `metrics.cnpg.enabled` |
+
+The old keys are rejected with a migration message rather than silently ignored.
 
 ## Test
 

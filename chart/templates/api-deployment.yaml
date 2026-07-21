@@ -1,6 +1,8 @@
 {{- include "tracecat.validateRequiredSecrets" . -}}
 {{- include "tracecat.validateAuthConfig" . -}}
 {{- include "tracecat.validateInfrastructure" . -}}
+{{- include "tracecat.validateMetricsMigration" . -}}
+{{- include "tracecat.validateMetrics" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,10 +22,13 @@ spec:
       labels:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: api
-      {{- if or .Values.reloader.enabled .Values.podAnnotations }}
+      {{- if include "tracecat.metrics.needsPodAnnotations" (dict "root" . "component" "api") }}
       annotations:
         {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- with (include "tracecat.metrics.scrapeAnnotations" (dict "root" . "component" "api")) }}
+        {{- . | nindent 8 }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -45,6 +50,9 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
+            {{- with (include "tracecat.metrics.containerPort" (dict "root" . "component" "api")) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           env:
             {{- include "tracecat.env.api" . | nindent 12 }}
             {{- include "tracecat.env.secrets.api" . | nindent 12 }}

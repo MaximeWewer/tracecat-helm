@@ -247,7 +247,54 @@
         "enabled": { "type": "boolean" },
         "ingressControllerNamespaceSelector": { "type": "object" },
         "allowExternalHttps": { "type": "boolean" },
-        "extraEgress": { "type": "array" }
+        "extraEgress": { "type": "array" },
+        "metricsScrapeFrom": { "type": "array" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceMonitor": { "$ref": "#/definitions/scrapeOpts" },
+        "tracecat": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "path": { "type": "string" },
+            "scrape": { "type": "boolean" },
+            "components": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "api": { "type": "boolean" },
+                "worker": { "type": "boolean" },
+                "executor": { "type": "boolean" },
+                "agentWorker": { "type": "boolean" },
+                "agentExecutor": { "type": "boolean" },
+                "mcp": { "type": "boolean" }
+              }
+            },
+            "serviceMonitor": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "interval": { "type": "string" },
+                "scrapeTimeout": { "type": "string" },
+                "additionalLabels": { "type": "object" }
+              }
+            }
+          }
+        },
+        "temporal": { "$ref": "#/definitions/subchartMonitor" },
+        "redis": { "$ref": "#/definitions/subchartMonitor" },
+        "cnpg": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
+        }
       }
     },
     "podDisruptionBudget": {
@@ -281,6 +328,26 @@
     }
   },
   "definitions": {
+    "scrapeOpts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interval": { "type": "string" },
+        "scrapeTimeout": { "type": "string" },
+        "additionalLabels": { "type": "object" }
+      }
+    },
+    "subchartMonitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "path": { "type": "string" },
+        "interval": { "type": "string" },
+        "scrapeTimeout": { "type": "string" },
+        "additionalLabels": { "type": "object" }
+      }
+    },
     "workload": {
       "type": "object",
       "properties": {

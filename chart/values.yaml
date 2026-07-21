@@ -327,22 +327,8 @@ tracecat:
       TracecatAlias: Keyword
       TracecatExecutionType: Keyword
 
-    # Temporal SDK metrics (Prometheus endpoint exposed by Tracecat processes that connect to Temporal).
-    # This is controlled via TEMPORAL__METRICS_PORT in Tracecat.
-    metrics:
-      enabled: false
-      port: 9000
-      path: /metrics
-      # Adds Prometheus scrape annotations to pods/services.
-      scrape: true
-      # Prometheus Operator ServiceMonitor for the per-component metrics Services
-      # (worker/executor/agent-worker/agent-executor). Requires the Prometheus
-      # Operator CRDs. Preferred over bundling a Prometheus/Grafana stack.
-      serviceMonitor:
-        enabled: false
-        interval: 30s
-        scrapeTimeout: ""
-        additionalLabels: {}
+    # Prometheus metrics for Tracecat processes moved to the top-level
+    # `metrics.tracecat` section (see "Observability" below).
 
     # End-to-end encryption of Temporal workflow payloads (TEMPORAL__PAYLOAD_ENCRYPTION_*).
     # Applied to every Tracecat process that connects to Temporal (api, worker,
@@ -666,6 +652,91 @@ reloader:
   enabled: false
 
 # ===========================================================================
+# Observability — Prometheus metrics
+# ===========================================================================
+# One switch per app in the release, all off by default. Nothing here bundles a
+# Prometheus/Grafana stack: the chart only exposes the endpoints and, when asked,
+# emits Prometheus Operator ServiceMonitor/PodMonitor CRs (their CRDs must exist).
+#
+# Deliberately absent:
+#   - RustFS (S3) has no Prometheus scrape endpoint — it only pushes OTLP. Point
+#     rustfs.config.rustfs.obs_endpoint.* at an OTel Collector instead.
+#   - The LiteLLM gateway. LiteLLM serves /metrics via the `prometheus` callback,
+#     but the Tracecat image does not ship `prometheus_client` (not a dep of
+#     litellm[proxy]==1.89.1) and LiteLLM imports it unguarded, so enabling the
+#     callback crashes the gateway at config load. Needs an upstream image
+#     change. See README.
+metrics:
+  # Shared ServiceMonitor scrape defaults. Every block below inherits these;
+  # set the matching per-block field to override (additionalLabels are merged,
+  # block wins). kube-prometheus-stack only adopts ServiceMonitors carrying its
+  # release label, e.g. additionalLabels: { release: kube-prometheus-stack }.
+  serviceMonitor:
+    interval: 30s
+    scrapeTimeout: ""
+    additionalLabels: {}
+
+  # --- Tracecat processes --------------------------------------------------
+  # Tracecat serves no FastAPI /metrics route. Its only Prometheus endpoint is
+  # the Temporal SDK exporter, armed per-process by TEMPORAL__METRICS_PORT: any
+  # process that opens a Temporal client then serves GET <port>/metrics.
+  tracecat:
+    enabled: false
+    port: 9000
+    path: /metrics
+    # Adds prometheus.io/* scrape annotations to the pods and metrics Services
+    # (for annotation-based Prometheus setups; harmless with a ServiceMonitor).
+    scrape: true
+    # Per-component. Each enabled component gains a `metrics` container port, a
+    # <fullname>-<component>-metrics Service, and a ServiceMonitor endpoint.
+    components:
+      api: true
+      worker: true
+      executor: true
+      agentWorker: true
+      agentExecutor: true
+      # MCP opens its Temporal client lazily (on the first Temporal-backed tool
+      # call), so the exporter does not bind at startup and the target stays
+      # down until traffic arrives. Off by default to avoid a permanently-red
+      # scrape target.
+      mcp: false
+    serviceMonitor:
+      enabled: false
+      interval: ""
+      scrapeTimeout: ""
+      additionalLabels: {}
+
+  # --- Temporal server (bundled subchart) ----------------------------------
+  # The server always listens on :9090/metrics
+  # (temporal.server.config.metrics.prometheus.listenAddress), so this only
+  # controls the ServiceMonitor. It targets the subchart's headless Services.
+  # The subchart ships its own equivalent under
+  # temporal.server.metrics.serviceMonitor — enable one or the other, not both.
+  temporal:
+    enabled: false
+    path: /metrics
+    interval: ""
+    scrapeTimeout: ""
+    additionalLabels: {}
+
+  # --- Redis (bundled CloudPirates subchart) -------------------------------
+  # Scrapes the redis_exporter sidecar (:9121/metrics). The sidecar itself is
+  # subchart-owned: you must ALSO set redis.metrics.enabled=true (the chart
+  # fails the render with that hint if you forget).
+  redis:
+    enabled: false
+    path: /metrics
+    interval: ""
+    scrapeTimeout: ""
+    additionalLabels: {}
+
+  # --- PostgreSQL (CloudNative-PG clusters) --------------------------------
+  # Sets monitoring.enablePodMonitor on both Cluster CRs (app + temporal); the
+  # CNPG operator then creates the PodMonitors itself.
+  cnpg:
+    enabled: false
+
+# ===========================================================================
 # Autoscaling — KEDA, driven by Temporal task-queue backlog.
 # ===========================================================================
 # Requires the KEDA operator (+ its CRDs) installed cluster-wide. When a
@@ -721,9 +792,7 @@ cnpg:
   retainOnDelete: true
   # CNPG-native pod anti-affinity: spread instances across nodes (no-op at 1 instance).
   enablePodAntiAffinity: true
-  # CNPG PodMonitor for Prometheus Operator (requires its CRDs).
-  monitoring:
-    enablePodMonitor: false
+  # PodMonitor moved to metrics.cnpg.enabled (see "Observability" above).
   # Continuous backup + WAL archiving via barman objectStore (S3-compatible, e.g.
   # the bundled RustFS). Off by default: needs a pre-created backup bucket.
   # Per-cluster destination = <destinationPath>/<cluster name>.
@@ -784,9 +853,18 @@ redis:
   enabled: true
   auth:
     enabled: false
+    # The subchart injects REDIS_PASSWORD into the exporter when
+    # `auth.enabled OR auth.metrics`, but creates no Secret while auth is off —
+    # leaving it true crashes the sidecar with CreateContainerConfigError.
+    # Keep this mirroring auth.enabled.
+    metrics: false
   persistence:
     enabled: true
     size: 2Gi
+  # redis_exporter sidecar (:9121). Required by metrics.redis.enabled; the
+  # subchart's own serviceMonitor is left off — this chart renders it instead.
+  metrics:
+    enabled: false
 
 # S3 via RustFS subchart (standalone single-node). Shares tracecat-s3 for creds.
 rustfs:
@@ -872,6 +950,14 @@ networkPolicy:
   allowExternalHttps: true
   # Extra egress (e.g. a specific OIDC IdP CIDR). DNS (53) is always allowed.
   extraEgress: []
+  # Peers allowed to scrape the Tracecat metrics port (metrics.tracecat.port).
+  # The policies above only admit same-namespace pods, so a Prometheus running
+  # in another namespace needs an entry here. Only the metrics port is opened.
+  #   metricsScrapeFrom:
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: monitoring
+  metricsScrapeFrom: []
 
 # ===========================================================================
 # PodDisruptionBudgets for the stateless Tracecat workloads.

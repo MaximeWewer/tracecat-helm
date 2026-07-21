@@ -247,6 +247,7 @@ Merges: common + temporal + postgres + redis + api-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "api") }}
 - name: TRACECAT__API_ROOT_PATH
   value: "/api"
 - name: TRACECAT__API_URL
@@ -350,10 +351,7 @@ Merges: common + temporal + postgres + redis + worker-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
-{{- if .Values.tracecat.temporal.metrics.enabled }}
-- name: TEMPORAL__METRICS_PORT
-  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
-{{- end }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "worker") }}
 - name: TRACECAT__API_ROOT_PATH
   value: "/api"
 - name: TRACECAT__API_URL
@@ -382,10 +380,7 @@ Merges: common + temporal + postgres + redis + executor-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
-{{- if .Values.tracecat.temporal.metrics.enabled }}
-- name: TEMPORAL__METRICS_PORT
-  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
-{{- end }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "executor") }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 {{- /* Context compression */}}
@@ -415,10 +410,7 @@ Merges: common + temporal + blobStorage + postgres + redis + agent-worker-specif
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
-{{- if .Values.tracecat.temporal.metrics.enabled }}
-- name: TEMPORAL__METRICS_PORT
-  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
-{{- end }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "agentWorker") }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 - name: TRACECAT__LITELLM_BASE_URL
@@ -450,10 +442,7 @@ Merges: common + temporal + blobStorage + postgres + redis + sandbox + agent-exe
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
-{{- if .Values.tracecat.temporal.metrics.enabled }}
-- name: TEMPORAL__METRICS_PORT
-  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
-{{- end }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "agentExecutor") }}
 - name: TRACECAT__API_URL
   value: {{ include "tracecat.internalApiUrl" . | quote }}
 - name: TRACECAT__LITELLM_BASE_URL
@@ -549,6 +538,7 @@ Merges: common + temporal + blobStorage + postgres + redis + mcp-specific
 {{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
+{{- include "tracecat.metrics.env" (dict "root" . "component" "mcp") }}
 - name: TRACECAT_MCP__HOST
   value: "0.0.0.0"
 - name: TRACECAT_MCP__PORT

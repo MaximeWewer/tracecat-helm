@@ -115,8 +115,41 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.litellm.port }}
-        {{- if .Values.tracecat.temporal.metrics.enabled }}
+        {{- if .Values.metrics.tracecat.enabled }}
         - protocol: TCP
-          port: {{ .Values.tracecat.temporal.metrics.port }}
+          port: {{ .Values.metrics.tracecat.port }}
         {{- end }}
+{{- if and .Values.metrics.tracecat.enabled .Values.networkPolicy.metricsScrapeFrom }}
+{{- $components := include "tracecat.metrics.enabledComponentLabels" . | fromJsonArray }}
+{{- if $components }}
+---
+{{- /*
+Prometheus usually runs outside this namespace, and the policies above only
+admit same-namespace pods. This opens the metrics port — and nothing else — to
+the declared scraper peers. NetworkPolicies are additive, so it widens nothing.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tracecat.fullname" . }}-metrics-ingress
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "tracecat.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: {{ $components | toJson }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.metricsScrapeFrom | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.metrics.tracecat.port }}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -69,6 +69,37 @@ Validate infrastructure dependencies
 {{- end -}}
 
 {{/*
+Fail loudly on metrics keys that moved to the top-level `metrics` section, so a
+stale values.yaml silently turns metrics OFF instead of erroring.
+*/}}
+{{- define "tracecat.validateMetricsMigration" -}}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- if dig "tracecat" "temporal" "metrics" nil $values -}}
+{{- fail "tracecat.temporal.metrics.* moved to metrics.tracecat.* (metrics.tracecat.enabled/port/path/scrape/components/serviceMonitor). Remove the old key." -}}
+{{- end -}}
+{{- if dig "cnpg" "monitoring" nil $values -}}
+{{- fail "cnpg.monitoring.enablePodMonitor moved to metrics.cnpg.enabled. Remove the old key." -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate metrics configuration.
+*/}}
+{{- define "tracecat.validateMetrics" -}}
+{{- $values := .Values | toYaml | fromYaml -}}
+{{- /*
+The Redis subchart mounts a REDIS_PASSWORD secretKeyRef into the exporter when
+`auth.enabled OR auth.metrics`, but only creates that Secret when auth.enabled.
+The mismatch leaves the sidecar in CreateContainerConfigError.
+*/ -}}
+{{- if and .Values.redis.enabled (dig "redis" "metrics" "enabled" false $values) -}}
+{{- if and (dig "redis" "auth" "metrics" false $values) (not (dig "redis" "auth" "enabled" false $values)) -}}
+{{- fail "redis.auth.metrics=true requires redis.auth.enabled=true — otherwise the redis_exporter sidecar references a Secret the subchart never creates. Set redis.auth.metrics=false." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Validate MCP configuration
 */}}
 {{- define "tracecat.validateMcpConfig" -}}

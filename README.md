@@ -8,7 +8,8 @@ Helm chart for [Tracecat](https://github.com/TracecatHQ/tracecat) on Kubernetes.
 - Temporal via the official subchart, backed by PostgreSQL
 - PostgreSQL via the [CloudNative-PG](https://cloudnative-pg.io/) operator (app + temporal clusters)
 - Redis via the [CloudPirates](https://github.com/CloudPirates-io/helm-charts) chart, S3 via [RustFS](https://rustfs.com/)
-- KEDA autoscaling, ServiceMonitor, NetworkPolicies, PodDisruptionBudgets
+- KEDA autoscaling, NetworkPolicies, PodDisruptionBudgets
+- Prometheus metrics per app (`metrics.*`): Tracecat processes, Temporal server, Redis, PostgreSQL
 - 3 exposure modes (Ingress / Gateway API / Istio VirtualService)
 - Hardened: rootless, read-only rootfs, dropped caps, generate-once secrets
 - Automated weekly version updates tracking upstream Tracecat releases

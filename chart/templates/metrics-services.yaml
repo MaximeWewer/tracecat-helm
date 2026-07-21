@@ -1,0 +1,37 @@
+{{- /*
+One headless-less ClusterIP Service per Tracecat component whose Temporal SDK
+exporter is enabled, so ServiceMonitor (or annotation-based) scraping has a
+stable target that never mixes with the component's application port.
+*/ -}}
+{{- $root := . -}}
+{{- $m := .Values.metrics.tracecat -}}
+{{- $map := fromYaml (include "tracecat.metrics.componentMap" .) -}}
+{{- range $key, $label := $map }}
+{{- if include "tracecat.metrics.enabledFor" (dict "root" $root "component" $key) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracecat.fullname" $root }}-{{ $label }}-metrics
+  labels:
+    {{- include "tracecat.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $label }}
+    {{- /* Distinguishes these from the components' application Services, which
+           carry the same name/instance/component labels. */}}
+    tracecat.io/service: metrics
+  {{- with (include "tracecat.metrics.scrapeAnnotations" (dict "root" $root "component" $key)) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $m.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "tracecat.selectorLabels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $label }}
+{{- end }}
+{{- end }}

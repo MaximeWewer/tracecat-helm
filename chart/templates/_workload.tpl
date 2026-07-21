@@ -49,11 +49,12 @@ securityContext:
 
 {{/*
 Liveness probe for the Temporal workers (no HTTP server) — uses the SDK metrics
-port when metrics are enabled, so a hung worker gets restarted. Place at the
+port, so it only exists when that component's exporter is enabled. Place at the
 container level.
+  include "tracecat.workerLivenessProbe" (dict "root" $ "component" "worker")
 */}}
 {{- define "tracecat.workerLivenessProbe" -}}
-{{- if .Values.tracecat.temporal.metrics.enabled }}
+{{- if include "tracecat.metrics.enabledFor" . }}
 livenessProbe:
   tcpSocket:
     port: metrics

@@ -1,30 +1,95 @@
-{{- if and .Values.tracecat.temporal.metrics.enabled .Values.tracecat.temporal.metrics.serviceMonitor.enabled }}
-{{- $sm := .Values.tracecat.temporal.metrics.serviceMonitor }}
+{{- /*
+Prometheus Operator ServiceMonitors. Requires the monitoring.coreos.com CRDs.
+One per app: Tracecat workloads, the bundled Temporal server, the bundled Redis
+exporter. CNPG is covered by the operator's own PodMonitor (metrics.cnpg).
+*/ -}}
+{{- $m := .Values.metrics -}}
+
+{{- if and $m.tracecat.enabled $m.tracecat.serviceMonitor.enabled }}
+{{- $components := include "tracecat.metrics.enabledComponentLabels" . | fromJsonArray }}
+{{- if not $components }}
+{{- fail "metrics.tracecat.serviceMonitor.enabled=true but no component is enabled under metrics.tracecat.components — nothing to scrape" }}
+{{- end }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "tracecat.fullname" . }}
   labels:
-    {{- include "tracecat.labels" . | nindent 4 }}
-    {{- with $sm.additionalLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- include "tracecat.metrics.smLabels" (dict "root" . "block" $m.tracecat.serviceMonitor) | nindent 4 }}
 spec:
   selector:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}
+      tracecat.io/service: metrics
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: ["worker", "executor", "agent-worker", "agent-executor"]
+        values: {{ $components | toJson }}
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}
   endpoints:
     - port: metrics
-      path: {{ .Values.tracecat.temporal.metrics.path | default "/metrics" | quote }}
-      interval: {{ $sm.interval | default "30s" | quote }}
-      {{- with $sm.scrapeTimeout }}
-      scrapeTimeout: {{ . | quote }}
-      {{- end }}
+      path: {{ $m.tracecat.path | default "/metrics" | quote }}
+      {{- include "tracecat.metrics.smScrape" (dict "root" . "block" $m.tracecat.serviceMonitor) | nindent 6 }}
+{{- end }}
+
+{{- if $m.temporal.enabled }}
+{{- if not .Values.temporal.enabled }}
+{{- fail "metrics.temporal.enabled=true requires the bundled Temporal subchart (temporal.enabled=true); an external/Cloud Temporal must be scraped where it runs" }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tracecat.fullname" . }}-temporal
+  labels:
+    {{- include "tracecat.metrics.smLabels" (dict "root" . "block" $m.temporal) | nindent 4 }}
+spec:
+  {{- /* Every per-service headless Service the subchart renders carries a
+         `metrics` port (9090) plus the headless marker label. */}}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "tracecat.metrics.temporalName" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/headless: "true"
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ $m.temporal.path | default "/metrics" | quote }}
+      {{- include "tracecat.metrics.smScrape" (dict "root" . "block" $m.temporal) | nindent 6 }}
+{{- end }}
+
+{{- if $m.redis.enabled }}
+{{- $redis := .Values.redis | toYaml | fromYaml }}
+{{- if not .Values.redis.enabled }}
+{{- fail "metrics.redis.enabled=true requires the bundled Redis subchart (redis.enabled=true)" }}
+{{- end }}
+{{- if not (dig "metrics" "enabled" false $redis) }}
+{{- fail "metrics.redis.enabled=true also needs the exporter sidecar: set redis.metrics.enabled=true" }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tracecat.fullname" . }}-redis
+  labels:
+    {{- include "tracecat.metrics.smLabels" (dict "root" . "block" $m.redis) | nindent 4 }}
+spec:
+  {{- /* Matches the subchart's <redis fullname>-metrics Service (redis_exporter
+         sidecar, port name `metrics` on 9121). */}}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ default "redis" .Values.redis.nameOverride }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ $m.redis.path | default "/metrics" | quote }}
+      {{- include "tracecat.metrics.smScrape" (dict "root" . "block" $m.redis) | nindent 6 }}
 {{- end }}

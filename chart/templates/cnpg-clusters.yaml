@@ -31,7 +31,7 @@ spec:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
   {{- end }}
-  {{- if $.Values.cnpg.monitoring.enablePodMonitor }}
+  {{- if $.Values.metrics.cnpg.enabled }}
   monitoring:
     enablePodMonitor: true
   {{- end }}

@@ -21,9 +21,17 @@ spec:
       labels:
         {{- include "tracecat.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: mcp
-      {{- if .Values.reloader.enabled }}
+      {{- if include "tracecat.metrics.needsPodAnnotations" (dict "root" . "component" "mcp") }}
       annotations:
+        {{- if .Values.reloader.enabled }}
         reloader.stakater.com/auto: "true"
+        {{- end }}
+        {{- with (include "tracecat.metrics.scrapeAnnotations" (dict "root" . "component" "mcp")) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       securityContext:
@@ -42,6 +50,9 @@ spec:
             - name: http
               containerPort: {{ .Values.mcp.port }}
               protocol: TCP
+            {{- with (include "tracecat.metrics.containerPort" (dict "root" . "component" "mcp")) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           env:
             {{- include "tracecat.env.mcp" . | nindent 12 }}
             {{- include "tracecat.env.secrets" . | nindent 12 }}
