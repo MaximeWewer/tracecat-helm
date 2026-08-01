@@ -140,9 +140,9 @@ Kubernetes: `>=1.25.0-0`
 
 | Repository | Name | Version |
 |------------|------|---------|
-| https://charts.rustfs.com | rustfs | 0.10.0 |
+| https://charts.rustfs.com | rustfs | 0.11.0 |
 | https://go.temporal.io/helm-charts | temporal | 1.6.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.32.4 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.33.1 |
 
 ## Values
 
