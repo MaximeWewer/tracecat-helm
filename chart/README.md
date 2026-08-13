@@ -142,7 +142,7 @@ Kubernetes: `>=1.25.0-0`
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 0.12.0 |
 | https://go.temporal.io/helm-charts | temporal | 1.6.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.34.14 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.34.15 |
 
 ## Values
 
