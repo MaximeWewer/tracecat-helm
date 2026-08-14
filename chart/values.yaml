@@ -892,18 +892,26 @@ rustfs:
 # ===========================================================================
 # Bridge secrets — chart-managed "glue" between bundled deps and Tracecat.
 # ===========================================================================
-# When enabled, the chart generates (generate-once via lookup, preserved across
-# upgrades) the secrets that wire CNPG/redis/rustfs to Tracecat:
-#   - <coreSecretName>   app secrets: dbEncryptionKey/serviceKey/signingSecret/userAuthSecret
+# When enabled, the chart provisions the secrets that wire CNPG/redis/rustfs to
+# Tracecat:
+#   - <coreSecretName>   app secrets: dbEncryptionKey/serviceKey/signingSecret/userAuthSecret/litellmMasterKey
 #   - <redisSecretName>  REDIS_URL for the bundled CloudPirates redis (key: url)
 #   - <s3SecretName>     S3 creds shared by Tracecat (accessKeyId/secretAccessKey)
 #                        and RustFS (RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY)
+#
+# The random secrets (core + S3) are created generate-once by a pre-install/
+# pre-upgrade Job (bridge-secrets-generator.yaml) that reads the live cluster and
+# creates each secret only if absent. This is GitOps-safe: unlike the old
+# `lookup`-based template it does NOT re-roll the Fernet dbEncryptionKey on every
+# Argo CD sync, so pinning values below is optional. The redis URL secret is
+# deterministic and stays a plain template resource.
+#
 # Disable when you provide these via secrets.existingSecret / External Secrets.
 bridgeSecrets:
   enabled: true
-  # Annotate generated secrets with helm.sh/resource-policy: keep so `helm uninstall`
-  # keeps them — losing the core secret means losing the Fernet dbEncryptionKey
-  # (all DB-encrypted credentials become unrecoverable).
+  # Annotate the generated secrets with helm.sh/resource-policy: keep so
+  # `helm uninstall` keeps them — losing the core secret means losing the Fernet
+  # dbEncryptionKey (all DB-encrypted credentials become unrecoverable).
   retain: true
   coreSecretName: "tracecat-secrets"
   redisSecretName: "tracecat-redis-url"
@@ -912,14 +920,27 @@ bridgeSecrets:
   # (<release>-redis); set only to point at an external/shared redis.
   redisServiceName: ""
   redisPort: 6379
-  # Inline secret values — pin every sensitive value in Git when no secret
-  # manager is available. REQUIRED under Argo CD (or any `helm template` flow):
-  # there `lookup` returns nothing, so leaving these empty re-rolls the random
-  # values on every sync — rotating the Fernet dbEncryptionKey and orphaning all
-  # encrypted data. Generate once, then keep these stable.
-  # Precedence per field: inline value > existing in-cluster secret > random.
+  # The generate-once Job. Needs a kubectl-capable image (kubectl + POSIX sh +
+  # base64/od/tr — e.g. alpine/k8s, bitnami/kubectl, or an internal mirror) and a
+  # namespaced Role granting get/create on secrets (never update/delete).
+  generator:
+    image:
+      repository: alpine/k8s
+      tag: "1.36.2"
+      pullPolicy: IfNotPresent
+      # digest: "" # sha256:... pins by digest (takes precedence over tag)
+    rbac:
+      # Create the generator's ServiceAccount + Role + RoleBinding. Disable to
+      # supply your own (set generator.serviceAccountName) on locked-down clusters.
+      create: true
+    # Used when rbac.create=false; empty = "<fullname>-secret-generator".
+    serviceAccountName: ""
+  # Optional inline pinning — BYO deterministic values instead of generating.
+  # No longer required under Argo CD (the generator Job is generate-once). When
+  # set, a field is used verbatim on first creation; the Job never overwrites an
+  # existing secret, so to rotate you must delete the secret first.
   # Suggested generation (run once, commit the output):
-  #   dbEncryptionKey   = openssl rand -base64 24 | tr '+/' '-_'   (Fernet key)
+  #   dbEncryptionKey   = openssl rand -base64 32 | tr '+/' '-_'   (Fernet key)
   #   serviceKey/signingSecret/userAuthSecret = openssl rand -hex 32
   #   litellmMasterKey  = sk-$(openssl rand -hex 24)
   #   s3AccessKeyId     = tracecat-$(openssl rand -hex 8)

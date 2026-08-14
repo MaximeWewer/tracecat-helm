@@ -227,6 +227,29 @@
         "s3SecretName": { "type": "string" },
         "redisServiceName": { "type": "string" },
         "redisPort": { "type": "integer" },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": { "type": "string" },
+                "tag": { "type": "string" },
+                "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+                "digest": { "type": "string" }
+              },
+              "required": ["repository"]
+            },
+            "rbac": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "create": { "type": "boolean" } }
+            },
+            "serviceAccountName": { "type": "string" }
+          }
+        },
         "values": {
           "type": "object",
           "properties": {

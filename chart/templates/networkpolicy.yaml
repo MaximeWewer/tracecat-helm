@@ -16,6 +16,15 @@ spec:
   podSelector:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}
+    {{- /*
+    Exclude the generate-once secret Job: it must reach the kube-apiserver
+    (which is neither in-namespace nor a permitted egress target here), it is
+    chart-owned and short-lived, and it holds no untrusted code.
+    */}}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: ["secret-generator"]
   policyTypes:
     - Egress
   egress:

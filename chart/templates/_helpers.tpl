@@ -74,6 +74,16 @@ Full image references (digest takes precedence over tag for supply-chain pinning
 {{- end -}}
 {{- end }}
 
+{{- /* kubectl-capable image for the bridge secret generator Job. */ -}}
+{{- define "tracecat.secretGeneratorImage" -}}
+{{- $img := .Values.bridgeSecrets.generator.image -}}
+{{- if $img.digest -}}
+{{- printf "%s@%s" $img.repository $img.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $img.repository $img.tag -}}
+{{- end -}}
+{{- end }}
+
 {{/*
 Common labels
 */}}
