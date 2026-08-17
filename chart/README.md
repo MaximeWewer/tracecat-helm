@@ -155,7 +155,7 @@ Kubernetes: `>=1.25.0-0`
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 0.12.0 |
 | https://go.temporal.io/helm-charts | temporal | 1.6.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.34.15 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.34.17 |
 
 ## Values
 
@@ -226,7 +226,7 @@ Kubernetes: `>=1.25.0-0`
 | bridgeSecrets.enabled | bool | `true` |  |
 | bridgeSecrets.generator.image.pullPolicy | string | `"IfNotPresent"` |  |
 | bridgeSecrets.generator.image.repository | string | `"alpine/k8s"` |  |
-| bridgeSecrets.generator.image.tag | string | `"1.31.1"` |  |
+| bridgeSecrets.generator.image.tag | string | `"1.36.2"` |  |
 | bridgeSecrets.generator.rbac.create | bool | `true` |  |
 | bridgeSecrets.generator.serviceAccountName | string | `""` |  |
 | bridgeSecrets.redisPort | int | `6379` |  |
