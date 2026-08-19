@@ -7,13 +7,29 @@ pre-install hook would deadlock waiting for a database that Helm has not created
 yet. As a normal resource the Job is applied alongside the CNPG Cluster; its
 wait-for-postgres initContainer blocks until the operator's primary is ready.
 
-The Job name is revision-scoped so each `helm upgrade` creates a fresh,
-immutable Job; completed Jobs are reaped via ttlSecondsAfterFinished.
+The Job name is suffixed with a hash of its pod template's inputs (image, env,
+security context, scheduling). `Job.spec.template` is immutable, so a stable
+name + changed template makes any apply fail with "field is immutable" — which
+is exactly what happens under Argo CD, where `.Release.Revision` is always 1 so
+the name never rotates. Hashing means a changed template yields a NEW Job name
+(the old one reaped via ttlSecondsAfterFinished) while an unchanged template
+re-uses the completed Job (no needless re-run). Covers both Helm and Argo.
 */}}
+{{- $migHash := printf "%s\n%s\n%s\n%s"
+      (include "tracecat.backendImage" .)
+      (include "tracecat.env.migrations" .)
+      (include "tracecat.env.postgres" .)
+      (toYaml (dict
+        "securityContext" .Values.securityContext
+        "containerSecurityContext" .Values.containerSecurityContext
+        "scheduling" .Values.scheduling
+        "initImage" .Values.initImage
+        "extraEnvFrom" .Values.extraEnvFrom))
+    | sha256sum | trunc 10 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "tracecat.fullname" . }}-migrations-{{ .Release.Revision }}
+  name: {{ printf "%s-migrations-%s" (include "tracecat.fullname" .) $migHash | trunc 63 | trimSuffix "-" }}
   labels:
     {{- include "tracecat.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrations
