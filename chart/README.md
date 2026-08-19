@@ -226,7 +226,7 @@ Kubernetes: `>=1.25.0-0`
 | bridgeSecrets.enabled | bool | `true` |  |
 | bridgeSecrets.generator.image.pullPolicy | string | `"IfNotPresent"` |  |
 | bridgeSecrets.generator.image.repository | string | `"alpine/k8s"` |  |
-| bridgeSecrets.generator.image.tag | string | `"1.31.1"` |  |
+| bridgeSecrets.generator.image.tag | string | `"1.36.2"` |  |
 | bridgeSecrets.generator.rbac.create | bool | `true` |  |
 | bridgeSecrets.generator.serviceAccountName | string | `""` |  |
 | bridgeSecrets.redisPort | int | `6379` |  |
@@ -265,6 +265,7 @@ Kubernetes: `>=1.25.0-0`
 | cnpg.enablePodAntiAffinity | bool | `true` |  |
 | cnpg.enabled | bool | `true` |  |
 | cnpg.retainOnDelete | bool | `true` |  |
+| cnpg.temporal.backup.retentionPolicy | string | `"7d"` |  |
 | cnpg.temporal.database | string | `"temporal"` |  |
 | cnpg.temporal.imageName | string | `"ghcr.io/cloudnative-pg/postgresql:17.4"` |  |
 | cnpg.temporal.instances | int | `1` |  |
@@ -409,6 +410,11 @@ Kubernetes: `>=1.25.0-0`
 | reloader.enabled | bool | `false` |  |
 | revisionHistoryLimit | int | `3` |  |
 | rustfs.config.rustfs.console_enable | string | `"false"` |  |
+| rustfs.config.rustfs.log_level | string | `"warn"` |  |
+| rustfs.config.rustfs.log_rotation.keep_files | int | `3` |  |
+| rustfs.config.rustfs.log_rotation.size | int | `100` |  |
+| rustfs.config.rustfs.log_rotation.time | string | `"day"` |  |
+| rustfs.config.rustfs.obs_environment | string | `"production"` |  |
 | rustfs.enabled | bool | `true` |  |
 | rustfs.ingress.enabled | bool | `false` |  |
 | rustfs.mode.distributed.enabled | bool | `false` |  |

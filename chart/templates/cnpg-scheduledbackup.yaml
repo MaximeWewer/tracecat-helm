@@ -1,7 +1,11 @@
-{{- if and .Values.cnpg.enabled .Values.cnpg.backup.enabled .Values.cnpg.backup.scheduledBackup.enabled }}
-{{- /* Scheduled base backups for each CNPG cluster (on top of WAL archiving). */ -}}
+{{- if .Values.cnpg.enabled }}
+{{- /* Scheduled base backups for each CNPG cluster (on top of WAL archiving).
+     Honours the same per-cluster backup override as cnpg-clusters.yaml. */ -}}
 {{- range $key := (list "app" "temporal") }}
 {{- $c := index $.Values.cnpg $key }}
+{{- $backup := deepCopy $.Values.cnpg.backup }}
+{{- with $c.backup }}{{- $backup = mergeOverwrite $backup (deepCopy .) }}{{- end }}
+{{- if and $backup.enabled $backup.scheduledBackup.enabled }}
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
@@ -10,11 +14,12 @@ metadata:
     {{- include "tracecat.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ printf "postgres-%s" $key }}
 spec:
-  schedule: {{ $.Values.cnpg.backup.scheduledBackup.schedule | quote }}
-  immediate: {{ $.Values.cnpg.backup.scheduledBackup.immediate }}
+  schedule: {{ $backup.scheduledBackup.schedule | quote }}
+  immediate: {{ $backup.scheduledBackup.immediate }}
   backupOwnerReference: self
   cluster:
     name: {{ $c.name }}
 ---
+{{- end }}
 {{- end }}
 {{- end }}
