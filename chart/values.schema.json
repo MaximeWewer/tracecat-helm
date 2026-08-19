@@ -399,7 +399,11 @@
         "imageName": { "type": "string" },
         "storage": { "type": "object" },
         "resources": { "type": "object" },
-        "postInitSQL": { "type": "array" }
+        "postInitSQL": { "type": "array" },
+        "backup": {
+          "type": "object",
+          "description": "Per-cluster override merged over cnpg.backup (e.g. retentionPolicy, enabled)."
+        }
       }
     }
   }

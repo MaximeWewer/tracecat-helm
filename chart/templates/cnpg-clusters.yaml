@@ -9,9 +9,13 @@ must be installed in the cluster first):
 CNPG emits a <name>-app Secret (keys: username, password, ...) consumed by
 externalPostgres.auth.existingSecret and the Temporal datastore config.
 */ -}}
-{{- $backup := .Values.cnpg.backup -}}
 {{- range $key := (list "app" "temporal") }}
 {{- $c := index $.Values.cnpg $key }}
+{{- /* Effective backup config = global cnpg.backup, overlaid with the optional
+     per-cluster cnpg.<app|temporal>.backup (e.g. a shorter retention on the
+     temporal WAL firehose). */}}
+{{- $backup := deepCopy $.Values.cnpg.backup }}
+{{- with $c.backup }}{{- $backup = mergeOverwrite $backup (deepCopy .) }}{{- end }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:

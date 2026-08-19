@@ -2,7 +2,7 @@ apiVersion: v2
 name: tracecat
 description: Tracecat (SOAR / AI automation)
 type: application
-version: 1.0.0-beta.51-17-08-2026
+version: 1.0.0-beta.51-19-08-2026
 appVersion: "1.0.0-beta.51"
 kubeVersion: ">=1.25.0-0"
 home: https://tracecat.com

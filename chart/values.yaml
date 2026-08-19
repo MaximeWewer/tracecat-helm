@@ -796,6 +796,12 @@ cnpg:
   # Continuous backup + WAL archiving via barman objectStore (S3-compatible, e.g.
   # the bundled RustFS). Off by default: needs a pre-created backup bucket.
   # Per-cluster destination = <destinationPath>/<cluster name>.
+  #
+  # These are the DEFAULTS for both clusters. Any field can be overridden
+  # per-cluster under cnpg.app.backup / cnpg.temporal.backup — notably
+  # retentionPolicy: Temporal is a WAL firehose (a busy queue DB whose live size
+  # stays tiny but that generates huge volumes of WAL), so 30 days of its WAL
+  # archive can reach tens of GB. cnpg.temporal.backup below caps it at 7d.
   backup:
     enabled: false
     destinationPath: "s3://tracecat-pg-backups"
@@ -827,6 +833,11 @@ cnpg:
         memory: 512Mi
       limits:
         memory: 1Gi
+    # Optional per-cluster backup override (merged over cnpg.backup). The app DB
+    # holds the workflow definitions + Fernet-encrypted credentials, so it keeps
+    # the full default retention. Uncomment to tune, e.g.:
+    # backup:
+    #   retentionPolicy: "30d"
   temporal:
     name: "tracecat-pg-temporal"
     owner: temporal
@@ -842,6 +853,13 @@ cnpg:
         memory: 512Mi
       limits:
         memory: 1Gi
+    # Per-cluster backup override (merged over cnpg.backup). Temporal's WAL
+    # firehose makes 30d of archive balloon to tens of GB while the live DB stays
+    # small, so cap its retention short. Temporal state is execution history, not
+    # source-of-truth config — a few days of PITR is plenty. Set enabled:false to
+    # drop WAL archiving for this cluster entirely.
+    backup:
+      retentionPolicy: "7d"
     # Temporal's schema manager creates the temporal/temporal_visibility DBs
     # itself (datastores.*.sql.createDatabase=true), so the role needs CREATEDB.
     postInitSQL:
@@ -882,6 +900,17 @@ rustfs:
   config:
     rustfs:
       console_enable: "false"
+      # The subchart defaults (log_level=info + obs_environment=development, no
+      # rotation cap) write ~250 MB/hour to the log PVC. Quieten it: warn level,
+      # production format, and keep only 3 rotated files. To ship logs to your
+      # cluster stack (e.g. Loki) instead of a PVC, set obs_log_directory: ""
+      # (disables the logs PVC/mount; RustFS then logs to stdout).
+      log_level: "warn"
+      obs_environment: "production"
+      log_rotation:
+        size: 100      # MB per file
+        time: "day"
+        keep_files: 3
   # RustFS provisions a data PVC and a logs PVC via this storageClass.
   # Default "local-path"; override per cluster (e.g. "standard" on minikube).
   storageclass:
