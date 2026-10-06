@@ -30,10 +30,11 @@ jobs:
         run: |
           # Tracecat publishes backend + UI images under one tag; the chart's
           # appVersion drives both (image.tag / uiImage.tag default to it).
-          # Pick the highest stable beta tag, ignoring -rc / hotfix tags.
+          # Pick the highest stable release (X.Y.Z), ignoring pre-releases
+          # (-alpha / -beta / -rc, incl. .postN) and hotfix/* tags.
           CORE=$(git ls-remote --tags --sort=-v:refname https://github.com/TracecatHQ/tracecat.git \
             | grep -oE 'refs/tags/[^^]*$' | sed 's#refs/tags/##' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' | head -n1)
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
           if [ -z "$CORE" ]; then
             echo "Could not determine Tracecat release tag" >&2
             exit 1
