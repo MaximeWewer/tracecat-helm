@@ -79,7 +79,7 @@ metadata:
     {{- include "tracecat.metrics.smLabels" (dict "root" . "block" $m.redis) | nindent 4 }}
 spec:
   {{- /* Matches the subchart's <redis fullname>-metrics Service (redis_exporter
-         sidecar, port name `metrics` on 9121). */}}
+         sidecar, port name `http-metrics` on 9121). */}}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ default "redis" .Values.redis.nameOverride }}
@@ -89,7 +89,7 @@ spec:
     matchNames:
       - {{ .Release.Namespace }}
   endpoints:
-    - port: metrics
+    - port: http-metrics
       path: {{ $m.redis.path | default "/metrics" | quote }}
       {{- include "tracecat.metrics.smScrape" (dict "root" . "block" $m.redis) | nindent 6 }}
 {{- end }}
