@@ -517,6 +517,8 @@ Merges: common + postgres + core secrets + litellm-specific
 {{ include "tracecat.env.secrets" . }}
 - name: TRACECAT__LITELLM_PORT
   value: {{ .Values.litellm.port | quote }}
+- name: TRACECAT__LITELLM_NUM_WORKERS
+  value: {{ .Values.litellm.numWorkers | quote }}
 - name: TRACECAT__LITELLM_BASE_URL
   value: {{ include "tracecat.litellmBaseUrl" . | quote }}
 {{- if .Values.bridgeSecrets.enabled }}

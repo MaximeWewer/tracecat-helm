@@ -479,6 +479,9 @@ litellm:
   enabled: true
   replicas: 1
   port: 4000
+  # Uvicorn workers. Each must answer the 5s health ping while importing
+  # LiteLLM: keep 1 when the CPU limit is around 1 core.
+  numWorkers: 2
   serviceAccount:
     # Defaults to the shared app service account. Set create:true (or a name)
     # for a dedicated identity (e.g. workload identity) on the LLM gateway.

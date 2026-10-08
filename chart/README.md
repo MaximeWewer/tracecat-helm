@@ -348,6 +348,7 @@ Kubernetes: `>=1.25.0-0`
 | keda.pollingInterval | int | `30` |  |
 | litellm.baseUrl | string | `""` |  |
 | litellm.enabled | bool | `true` |  |
+| litellm.numWorkers | int | `2` | Uvicorn workers. Each must answer the 5s health ping while importing LiteLLM: keep 1 when the CPU limit is around 1 core. |
 | litellm.port | int | `4000` |  |
 | litellm.replicas | int | `1` |  |
 | litellm.resources.limits.cpu | string | `"4000m"` |  |

@@ -164,6 +164,7 @@
         { "properties": {
             "enabled": { "type": "boolean" },
             "port": { "type": "integer" },
+            "numWorkers": { "type": "integer", "minimum": 1 },
             "baseUrl": { "type": "string" }
         } }
       ]
