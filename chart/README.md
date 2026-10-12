@@ -242,10 +242,17 @@ Kubernetes: `>=1.25.0-0`
 | bridgeSecrets.values.signingSecret | string | `""` |  |
 | bridgeSecrets.values.userAuthSecret | string | `""` |  |
 | cnpg.app.database | string | `"tracecat"` |  |
+| cnpg.app.ensurePgvector.enabled | bool | `true` |  |
+| cnpg.app.ensurePgvector.image.pullPolicy | string | `"IfNotPresent"` |  |
+| cnpg.app.ensurePgvector.image.repository | string | `"alpine/k8s"` |  |
+| cnpg.app.ensurePgvector.image.tag | string | `"1.31.1"` |  |
+| cnpg.app.ensurePgvector.rbac.create | bool | `true` |  |
+| cnpg.app.ensurePgvector.serviceAccountName | string | `""` |  |
 | cnpg.app.imageName | string | `"ghcr.io/cloudnative-pg/postgresql:17.4"` |  |
 | cnpg.app.instances | int | `1` |  |
 | cnpg.app.name | string | `"tracecat-pg-app"` |  |
 | cnpg.app.owner | string | `"tracecat"` |  |
+| cnpg.app.postInitApplicationSQL[0] | string | `"CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"` |  |
 | cnpg.app.resources.limits.memory | string | `"1Gi"` |  |
 | cnpg.app.resources.requests.cpu | string | `"250m"` |  |
 | cnpg.app.resources.requests.memory | string | `"512Mi"` |  |
@@ -348,7 +355,7 @@ Kubernetes: `>=1.25.0-0`
 | keda.pollingInterval | int | `30` |  |
 | litellm.baseUrl | string | `""` |  |
 | litellm.enabled | bool | `true` |  |
-| litellm.numWorkers | int | `2` | Uvicorn workers. Each must answer the 5s health ping while importing LiteLLM: keep 1 when the CPU limit is around 1 core. |
+| litellm.numWorkers | int | `2` |  |
 | litellm.port | int | `4000` |  |
 | litellm.replicas | int | `1` |  |
 | litellm.resources.limits.cpu | string | `"4000m"` |  |
