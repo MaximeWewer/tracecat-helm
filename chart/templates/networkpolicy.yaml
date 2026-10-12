@@ -17,14 +17,14 @@ spec:
     matchLabels:
       {{- include "tracecat.selectorLabels" . | nindent 6 }}
     {{- /*
-    Exclude the generate-once secret Job: it must reach the kube-apiserver
-    (which is neither in-namespace nor a permitted egress target here), it is
-    chart-owned and short-lived, and it holds no untrusted code.
+    Exclude the chart's short-lived kube-apiserver Jobs (generate-once secrets,
+    pgvector-ensure): they must reach the API server (neither in-namespace nor a
+    permitted egress target here), are chart-owned, and hold no untrusted code.
     */}}
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: NotIn
-        values: ["secret-generator"]
+        values: ["secret-generator", "pgvector-ensure"]
   policyTypes:
     - Egress
   egress:

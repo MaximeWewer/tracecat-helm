@@ -225,8 +225,10 @@ Constructs REDIS_URL from computed host/port or from external secret
 Sandbox environment variables (shared by executor + agent executor)
 */}}
 {{- define "tracecat.env.sandbox" -}}
-- name: TRACECAT__DISABLE_NSJAIL
-  value: {{ .Values.tracecat.sandbox.disableNsjail | quote }}
+{{- /* TRACECAT__DISABLE_NSJAIL was removed in Tracecat 1.1.0 (#3656): the
+     sandbox is now selected via TRACECAT__EXECUTOR_BACKEND (direct|nsjail),
+     emitted per-component below. The chart-internal sandbox.disableNsjail value
+     still gates the hardened-vs-privileged securityContext + nsjail volumes. */}}
 - name: TRACECAT__SANDBOX_NSJAIL_PATH
   value: "/usr/local/bin/nsjail"
 - name: TRACECAT__SANDBOX_ROOTFS_PATH

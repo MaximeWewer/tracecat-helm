@@ -401,6 +401,31 @@
         "storage": { "type": "object" },
         "resources": { "type": "object" },
         "postInitSQL": { "type": "array" },
+        "postInitApplicationSQL": { "type": "array" },
+        "ensurePgvector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": { "type": "string" },
+                "tag": { "type": "string" },
+                "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+                "digest": { "type": "string" }
+              },
+              "required": ["repository"]
+            },
+            "rbac": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "create": { "type": "boolean" } }
+            },
+            "serviceAccountName": { "type": "string" }
+          }
+        },
         "backup": {
           "type": "object",
           "description": "Per-cluster override merged over cnpg.backup (e.g. retentionPolicy, enabled)."
