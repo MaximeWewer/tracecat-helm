@@ -826,6 +826,9 @@ cnpg:
     owner: tracecat
     database: tracecat
     instances: 1
+    # The CNPG image must ship pgvector >= 0.8.0 (postgresql:17.4 does, up to
+    # 0.8.0). Tracecat 1.1.0's semantic-search migration (9680c861644a) runs
+    # CREATE EXTENSION vector in the app DB and hard-fails without it.
     imageName: "ghcr.io/cloudnative-pg/postgresql:17.4"
     storage:
       size: 5Gi
@@ -836,6 +839,32 @@ cnpg:
         memory: 512Mi
       limits:
         memory: 1Gi
+    # Created by the superuser at cluster bootstrap. `vector` is NOT a trusted
+    # extension, so the app role cannot CREATE it itself — the migration would
+    # fail. NOTE: this runs only on FIRST init; for a cluster that already
+    # exists, create it once manually as superuser:
+    #   kubectl exec <cluster>-1 -c postgres -- \
+    #     psql -U postgres -d tracecat -c "CREATE EXTENSION IF NOT EXISTS vector"
+    postInitApplicationSQL:
+      - "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"
+    # postInitApplicationSQL only runs at FIRST bootstrap. For an EXISTING
+    # cluster (e.g. upgrading to Tracecat 1.1.0), this pre-install/pre-upgrade
+    # hook Job execs `CREATE EXTENSION IF NOT EXISTS vector` as superuser in the
+    # primary pod, so the upgrade needs no manual step. Idempotent; skips
+    # gracefully on a fresh install. Needs RBAC: pods get/list + pods/exec.
+    ensurePgvector:
+      enabled: true
+      image:
+        repository: alpine/k8s
+        tag: "1.31.1"
+        pullPolicy: IfNotPresent
+        # digest: "" # sha256:... pins by digest (takes precedence over tag)
+      rbac:
+        # Create the Job's ServiceAccount + Role + RoleBinding. Disable to supply
+        # your own (set serviceAccountName) on locked-down clusters.
+        create: true
+      # Used when rbac.create=false; empty = "<fullname>-pgvector-ensure".
+      serviceAccountName: ""
     # Optional per-cluster backup override (merged over cnpg.backup). The app DB
     # holds the workflow definitions + Fernet-encrypted credentials, so it keeps
     # the full default retention. Uncomment to tune, e.g.:

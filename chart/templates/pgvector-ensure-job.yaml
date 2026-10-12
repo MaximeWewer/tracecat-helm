@@ -1,0 +1,178 @@
+{{- if and .Values.cnpg.enabled .Values.cnpg.app.ensurePgvector.enabled }}
+{{- /*
+Ensure the pgvector `vector` extension exists in the application database.
+
+Tracecat 1.1.0's semantic-search migration (9680c861644a) runs
+`CREATE EXTENSION IF NOT EXISTS vector` in the app DB and hard-fails if it is
+missing — but `vector` is not a trusted extension, so the app role cannot create
+it. For a NEW cluster, cnpg.app.postInitApplicationSQL creates it at bootstrap.
+This pre-install/pre-upgrade hook Job covers an EXISTING cluster (where
+postInitApplicationSQL never re-runs): it execs `CREATE EXTENSION IF NOT EXISTS`
+as the superuser (peer auth on the primary's local socket), before the
+migrations Job runs. Idempotent; skips gracefully when no primary is up yet
+(fresh install — postInitApplicationSQL handles that path).
+*/}}
+{{- $e := .Values.cnpg.app.ensurePgvector }}
+{{- $img := $e.image }}
+{{- $saName := $e.serviceAccountName | default (printf "%s-pgvector-ensure" (include "tracecat.fullname" .)) }}
+{{- $hookAnnotations := dict
+      "helm.sh/hook" "pre-install,pre-upgrade"
+      "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+{{- if $e.rbac.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $saName }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector-ensure
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "-4"
+    argocd.argoproj.io/sync-wave: "-4"
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $saName }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector-ensure
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "-4"
+    argocd.argoproj.io/sync-wave: "-4"
+rules:
+  # Find the primary pod, then stream a psql command into it. Scoped to this
+  # namespace; no write access to any resource other than the exec subresource.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $saName }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector-ensure
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "-4"
+    argocd.argoproj.io/sync-wave: "-4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $saName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tracecat.fullname" . }}-pgvector-ensure
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgvector-ensure
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+    helm.sh/hook-weight: "-3"
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 240
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pgvector-ensure
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $saName }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.scheduling .Values.scheduling.architecture }}
+      nodeSelector:
+        kubernetes.io/arch: {{ .Values.scheduling.architecture }}
+      {{- end }}
+      {{- with .Values.scheduling.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pgvector-ensure
+          image: "{{ $img.repository }}{{ if $img.digest }}@{{ $img.digest }}{{ else }}:{{ $img.tag }}{{ end }}"
+          imagePullPolicy: {{ $img.pullPolicy }}
+          {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
+          command: ["/bin/sh", "-eu", "-c"]
+          args:
+            - |
+              ns="$NAMESPACE"; cluster="$CLUSTER"; db="$DB"
+              echo "ensuring pgvector in db='$db' on cluster='$cluster' (ns='$ns')"
+
+              primary=""
+              # ~90s: an upgrade has a running primary immediately; a fresh
+              # install has none yet (cluster is created later in the sync).
+              for i in $(seq 1 30); do
+                primary=$(kubectl get pod -n "$ns" -l "cnpg.io/cluster=$cluster,role=primary" -o name 2>/dev/null | head -1)
+                [ -z "$primary" ] && primary=$(kubectl get pod -n "$ns" -l "cnpg.io/cluster=$cluster,cnpg.io/instanceRole=primary" -o name 2>/dev/null | head -1)
+                if [ -n "$primary" ]; then
+                  ready=$(kubectl get -n "$ns" "$primary" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                  [ "$ready" = "True" ] && break
+                  primary=""
+                fi
+                sleep 3
+              done
+
+              if [ -z "$primary" ]; then
+                echo "no ready primary for '$cluster' after wait — assuming fresh install;"
+                echo "postInitApplicationSQL creates the extension at bootstrap. Skipping."
+                exit 0
+              fi
+
+              echo "found $primary; creating extension if absent"
+              kubectl exec -n "$ns" "$primary" -c postgres -- \
+                psql -U postgres -d "$db" -v ON_ERROR_STOP=1 \
+                -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"
+              echo "pgvector ensured"
+          env:
+            - name: HOME
+              value: /tmp
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CLUSTER
+              value: {{ .Values.cnpg.app.name | quote }}
+            - name: DB
+              value: {{ .Values.cnpg.app.database | quote }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

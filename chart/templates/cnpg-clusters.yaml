@@ -44,7 +44,16 @@ spec:
       database: {{ $c.database | quote }}
       owner: {{ $c.owner | quote }}
       {{- with $c.postInitSQL }}
+      {{- /* Runs as superuser against the `postgres` DB at bootstrap. */}}
       postInitSQL:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.postInitApplicationSQL }}
+      {{- /* Runs as superuser against the application DB at bootstrap — used to
+           create extensions the app role can't (e.g. pgvector, which is not a
+           trusted extension). Only runs at FIRST init; existing clusters need
+           the extension created manually (see README / NOTES). */}}
+      postInitApplicationSQL:
         {{- toYaml . | nindent 8 }}
       {{- end }}
   storage:
