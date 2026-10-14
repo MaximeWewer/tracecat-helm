@@ -1,0 +1,107 @@
+{{- if .Values.bootstrap.enabled }}
+{{- /*
+As-code bootstrap: reconcile bootstrap.workflows and bootstrap.secrets into the
+bootstrap.workspace workspace (script: files/bootstrap.py).
+
+Same shape as the migrations Job: a normal (non-hook) Job whose name is
+suffixed with a hash of everything it applies (image, env, script, secrets
+spec, workflow documents). Under Argo CD a changed input yields a new Job that
+re-runs the reconcile; an unchanged input re-uses the completed one. Runs with
+the API's environment and talks to the database through Tracecat's services,
+so no API token is involved. It waits (BOOTSTRAP_WAIT_SECONDS, then fails and
+retries via backoffLimit) for the migrations and for the API's first start,
+which seeds the default workspace.
+
+With bootstrap.existingConfigMap, the workflow documents live outside the
+chart: bump bootstrap.revision (any string) to force a re-run after editing it.
+*/}}
+{{- $b := .Values.bootstrap }}
+{{- $workflowsCm := $b.existingConfigMap | default (printf "%s-bootstrap-workflows" (include "tracecat.fullname" .)) }}
+{{- $hash := printf "%s\n%s\n%s\n%s\n%s\n%s\n%s"
+      (include "tracecat.backendImage" .)
+      (include "tracecat.env.api" .)
+      (include "tracecat.bootstrap.secretsEnv" .)
+      (include "tracecat.bootstrap.secretsSpec" .)
+      (.Files.Get "files/bootstrap.py")
+      (toYaml $b.workflows)
+      (toYaml (dict
+        "workspace" $b.workspace
+        "existingConfigMap" $b.existingConfigMap
+        "revision" $b.revision
+        "waitSeconds" $b.waitSeconds
+        "resources" $b.resources
+        "securityContext" .Values.securityContext
+        "containerSecurityContext" .Values.containerSecurityContext
+        "scheduling" .Values.scheduling
+        "initImage" .Values.initImage
+        "extraEnvFrom" .Values.extraEnvFrom))
+    | sha256sum | trunc 10 }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-bootstrap-%s" (include "tracecat.fullname" .) $hash | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+spec:
+  backoffLimit: {{ $b.backoffLimit }}
+  ttlSecondsAfterFinished: {{ $b.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracecat.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bootstrap
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      serviceAccountName: {{ include "tracecat.serviceAccountName" . }}
+      {{- include "tracecat.podScheduling" (dict "root" . "component" "bootstrap") | nindent 6 }}
+      initContainers:
+        {{- include "tracecat.initWaitPostgres" . | nindent 8 }}
+      containers:
+        - name: bootstrap
+          image: "{{ include "tracecat.backendImage" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- include "tracecat.containerSecurityContext" . | nindent 10 }}
+          command: ["python3", "/bootstrap/config/bootstrap.py"]
+          env:
+            {{- include "tracecat.env.api" . | nindent 12 }}
+            {{- include "tracecat.env.secrets.api" . | nindent 12 }}
+            - name: BOOTSTRAP_WORKSPACE
+              value: {{ $b.workspace | quote }}
+            - name: BOOTSTRAP_WAIT_SECONDS
+              value: {{ $b.waitSeconds | quote }}
+            - name: BOOTSTRAP_WORKFLOWS_DIR
+              value: /bootstrap/workflows
+            - name: BOOTSTRAP_SECRETS_FILE
+              value: /bootstrap/config/secrets.json
+            {{- include "tracecat.bootstrap.secretsEnv" . | nindent 12 }}
+          {{- include "tracecat.extraEnvFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml $b.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /bootstrap/config
+              readOnly: true
+            - name: workflows
+              mountPath: /bootstrap/workflows
+              readOnly: true
+            {{- include "tracecat.postgres.caVolumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "tracecat.fullname" . }}-bootstrap
+        - name: workflows
+          configMap:
+            name: {{ $workflowsCm }}
+        {{- include "tracecat.postgres.caVolume" . | nindent 8 }}
+{{- end }}

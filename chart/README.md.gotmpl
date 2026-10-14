@@ -118,6 +118,40 @@ networkPolicy:
 
 The old keys are rejected with a migration message rather than silently ignored.
 
+## Bootstrap (workflows and secrets as code)
+
+`bootstrap.enabled=true` adds a Job that reconciles `bootstrap.workflows` and `bootstrap.secrets` into the `bootstrap.workspace` workspace (default `Default Workspace`). It runs the backend image with the API environment and goes through Tracecat's own services (Git sync importer, secrets and schedules services), so no API key is needed. The Job name hashes its inputs: under Argo CD it re-runs only when a workflow, secret or the image changes.
+
+- **Workflows** use the Git sync format, keyed by id (`wf_...`). The id is kept, so a workflow exported from another instance keeps its id (and its references in other workflows). Two extensions: `status` (`online`/`offline`, the workflow toggle) and `schedules[].inputs` (schedule trigger inputs). Workflows are overwritten on each run; ones absent from values are never deleted. `schedules` absent = keep the existing ones, `[]` = remove them.
+- **Secrets** are workspace secrets, created or updated in place, never deleted. Each key takes a literal `value` (rendered into the Job spec, so non-sensitive only) or a `secretKeyRef`.
+
+```yaml
+bootstrap:
+  enabled: true
+  workflows:
+    sync-jira:
+      id: wf_6fKoayVHJUnq0U9dq56wJC
+      status: online
+      webhook: {methods: [POST], status: online}
+      schedules:
+        - every: PT15M
+          inputs: {mode: reconcile}
+      definition:          # the `definition` of a UI export (YAML)
+        title: Sync Jira
+        description: ...
+        entrypoint: {ref: fetch}
+        actions: [...]
+  secrets:
+    - name: opensearch_api
+      keys:
+        - {key: URL, value: "https://indexer:9200"}
+        - {key: PASSWORD, secretKeyRef: {name: tracecat-bootstrap, key: opensearch-password}}
+```
+
+A workflow export (YAML) maps to a document by keeping its `definition` and adding `id`, `status`, `webhook` and `schedules`. Its `layout` (node positions) is not imported: the canvas is laid out again.
+
+Limits: the webhook URL secret derives from the webhook row id and `signingSecret`, so it differs per instance (read it back from the UI); webhook API keys, case fields, tables, variables and registry repositories are not covered. The Job waits up to `bootstrap.waitSeconds` for the migrations and the API's first start (which creates `Default Workspace`); other workspaces must exist beforehand.
+
 ## Test
 
 ```sh

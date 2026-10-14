@@ -1049,3 +1049,70 @@ podDisruptionBudget:
   # Set maxUnavailable to use it instead of minAvailable (better with KEDA autoscaling).
   minAvailable: 1
   maxUnavailable: ""
+
+# ===========================================================================
+# As-code bootstrap: workflows and workspace secrets declared here are
+# reconciled into Tracecat by a Job (templates/bootstrap-job.yaml) running the
+# backend image with the API environment. No API token needed: the script uses
+# Tracecat's own services against the database. Re-runs only when an input
+# changes (hashed Job name), and is idempotent:
+#   - workflows are overwritten by id (Git sync format), never deleted;
+#   - secrets are created or updated in place, never deleted.
+# Objects created in the UI and absent from here are left alone.
+# ===========================================================================
+bootstrap:
+  enabled: false
+  # Target workspace, by name. The API seeds "Default Workspace" on its first
+  # start; the Job waits for it (waitSeconds) then fails and retries.
+  workspace: "Default Workspace"
+  # Workflow documents, keyed by file name (any key; ".yaml" is appended).
+  # Each value is a Git sync document (a mapping, or the same as a YAML string):
+  #   id: wf_6fKoayVHJUnq0U9dq56wJC   # stable short id, kept across clusters
+  #   alias: sync-jira                  # optional
+  #   folder_path: /soc/                # optional
+  #   tags: [{name: soc}]               # optional
+  #   status: online                    # online|offline (default: as created, offline)
+  #   webhook: {methods: [POST], status: online, include_headers: false}
+  #   case_trigger: {status: offline, event_types: [], tag_filters: []}
+  #   schedules:                        # absent = keep existing; [] = remove all
+  #     - every: PT15M                  # or cron: "*/15 * * * *"
+  #       status: online
+  #       inputs: {mode: reconcile}     # schedule trigger inputs
+  #   definition:                       # DSL (the "definition" of a UI export)
+  #     title: ...
+  #     description: ...
+  #     entrypoint: {ref: first_action}
+  #     actions: [...]
+  #     triggers: []
+  # The webhook URL secret derives from the webhook row id and the signing
+  # secret, so it differs per cluster: read it back from the UI after import.
+  workflows: {}
+  # Alternative to `workflows`: an existing ConfigMap whose keys are workflow
+  # documents (*.yaml / *.yml / *.json). Bump `revision` after editing it to
+  # re-run the Job.
+  existingConfigMap: ""
+  # Free-form string folded into the Job hash: change it to force a re-run.
+  revision: ""
+  # Workspace secrets (type custom unless `type` is set). Each key takes either
+  # a literal `value` (rendered into the Job spec: non-sensitive data only) or a
+  # `secretKeyRef` to a Kubernetes Secret in the release namespace.
+  #   secrets:
+  #     - name: opensearch_api
+  #       description: Wazuh indexer
+  #       environment: default
+  #       keys:
+  #         - key: URL
+  #           value: https://indexer:9200
+  #         - key: PASSWORD
+  #           secretKeyRef: {name: tracecat-bootstrap, key: opensearch-password}
+  secrets: []
+  # Seconds the script waits for the database/workspace before failing.
+  waitSeconds: 600
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 768Mi
