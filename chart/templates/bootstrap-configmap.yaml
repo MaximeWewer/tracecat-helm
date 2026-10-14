@@ -1,0 +1,37 @@
+{{- if .Values.bootstrap.enabled }}
+{{- /*
+Inputs of the bootstrap Job (templates/bootstrap-job.yaml): the reconcile script,
+the secrets spec (names + the env var holding each value, never the values) and,
+unless bootstrap.existingConfigMap is set, one file per declared workflow.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracecat.fullname" . }}-bootstrap
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+data:
+  bootstrap.py: |
+    {{- .Files.Get "files/bootstrap.py" | nindent 4 }}
+  secrets.json: {{ include "tracecat.bootstrap.secretsSpec" . | quote }}
+{{- if not .Values.bootstrap.existingConfigMap }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracecat.fullname" . }}-bootstrap-workflows
+  labels:
+    {{- include "tracecat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+data:
+  {{- range $name, $doc := .Values.bootstrap.workflows }}
+  {{ $name | trimSuffix ".yaml" | trimSuffix ".yml" }}.yaml: |
+    {{- if kindIs "string" $doc }}
+    {{- $doc | nindent 4 }}
+    {{- else }}
+    {{- toYaml $doc | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
