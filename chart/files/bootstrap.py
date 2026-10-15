@@ -40,6 +40,8 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
+from temporalio.service import RPCError, RPCStatusCode
+from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -137,6 +139,10 @@ async def import_workflows(role: Role, docs: list[tuple[str, dict[str, Any]]]) -
 
     for wf_id, status, schedules in extras:
         await apply_status_and_schedules(role, wf_id, status, schedules)
+    await drain_after_commit_tasks()
+    await ensure_temporal_schedules(
+        role, [wf_id for wf_id, _, schedules in extras if schedules is not None]
+    )
 
 
 def _normalize(params: ScheduleCreate) -> dict[str, Any]:
@@ -187,6 +193,53 @@ async def apply_status_and_schedules(
                 await service.replace_schedules(wf_uuid, desired, commit=False)
                 log(f"workflow {wf_id} schedules replaced ({len(desired)})")
         await session.commit()
+
+
+async def drain_after_commit_tasks(timeout: float = 60) -> None:
+    """Wait for the fire-and-forget after-commit callbacks (Temporal schedule
+    create/delete). The service schedules them as loop tasks; exiting right after
+    the last commit would cancel them and leave schedules in the DB only."""
+    me = asyncio.current_task()
+    await asyncio.sleep(0)
+    pending = [t for t in asyncio.all_tasks() if t is not me and not t.done()]
+    if pending:
+        await asyncio.wait(pending, timeout=timeout)
+
+
+async def ensure_temporal_schedules(role: Role, wf_ids: list[str]) -> None:
+    """Create the Temporal schedule of any DB schedule that lacks one (e.g. a
+    callback lost by an earlier run), since the DB diff alone would skip it."""
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await set_rls_context_from_role(session, role)
+        service = WorkflowSchedulesService(session=session, role=role)
+        for wf_id in wf_ids:
+            wf_uuid = WorkflowUUID.new(wf_id)
+            for s in await service.list_schedules(workflow_id=wf_uuid):
+                try:
+                    await (await bridge._get_handle(s.id)).describe()
+                    continue
+                except RPCError as e:
+                    if e.status != RPCStatusCode.NOT_FOUND:
+                        raise
+                await bridge.create_schedule(
+                    workflow_id=wf_uuid,
+                    schedule_id=s.id,
+                    cron=s.cron,
+                    every=s.every,
+                    offset=s.offset,
+                    start_at=s.start_at,
+                    end_at=s.end_at,
+                    timeout=s.timeout,
+                    status=s.status,
+                    role=role.model_copy(
+                        update={
+                            "type": "service",
+                            "service_id": "tracecat-schedule-runner",
+                            "user_id": None,
+                        }
+                    ),
+                )
+                log(f"workflow {wf_id} temporal schedule {s.id} recreated")
 
 
 async def reconcile_secrets(role: Role, specs: list[dict[str, Any]]) -> None:
