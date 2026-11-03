@@ -583,6 +583,8 @@ temporal:
         create: true
         namespace:
           - name: default
+            # Closed workflows kept this long, then purged. Reconciled on every
+            # install/upgrade by the temporal-setup hook (e.g. 168h or 7d).
             retention: 720h
     # Optional archival settings for self-hosted Temporal (chart 1.0.0-rc.1).
     # These are rendered from temporal/templates/server-configmap.yaml.

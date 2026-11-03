@@ -93,16 +93,43 @@ spec:
                 temporal operator namespace create "$@"
               }
 
+              # Duration ("720h0m0s", "168h", "7d", "90m") -> seconds, empty if unparsable.
+              duration_seconds() {
+                printf '%s\n' "$1" | awk '{
+                  s = $0; total = 0; ok = 0
+                  while (match(s, /^[0-9]+(\.[0-9]+)?(d|h|m|s)/)) {
+                    tok = substr(s, 1, RLENGTH); unit = substr(tok, length(tok), 1)
+                    val = substr(tok, 1, length(tok) - 1) + 0
+                    if (unit == "d") val *= 86400; else if (unit == "h") val *= 3600; else if (unit == "m") val *= 60
+                    total += val; ok = 1; s = substr(s, RLENGTH + 1)
+                  }
+                  if (ok && s == "") printf "%d\n", total
+                }'
+              }
+
               load_current_namespace_settings() {
                 CURRENT_HISTORY_ARCHIVAL_STATE="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.HistoryArchivalState"{print tolower($2); exit}')"
                 CURRENT_VISIBILITY_ARCHIVAL_STATE="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.VisibilityArchivalState"{print tolower($2); exit}')"
+                CURRENT_RETENTION="$(printf '%s\n' "$NAMESPACE_DESC" | awk '$1=="Config.WorkflowExecutionRetentionTtl"{print $2; exit}')"
               }
 
               reconcile_existing_namespace() {
                 set -- --namespace "$NAMESPACE"
 
-                # Retention is applied on create only. Existing namespaces may be
-                # constrained by cluster max retention settings and reject updates.
+                # Retention follows the values on every upgrade (only closed workflows
+                # are purged). Compared in seconds: Temporal reports "720h0m0s".
+                if [ -n "$RETENTION" ]; then
+                  WANT_RETENTION_S="$(duration_seconds "$RETENTION")"
+                  CURRENT_RETENTION_S="$(duration_seconds "$CURRENT_RETENTION")"
+                  if [ -z "$WANT_RETENTION_S" ]; then
+                    echo "Invalid Temporal namespace retention '$RETENTION'"
+                    exit 1
+                  fi
+                  if [ "$WANT_RETENTION_S" != "$CURRENT_RETENTION_S" ]; then
+                    echo "Retention: '$CURRENT_RETENTION' -> '$RETENTION'"
+                    set -- "$@" --retention "${WANT_RETENTION_S}s"
+                  fi
+                fi
                 if [ -n "$HISTORY_ARCHIVAL_STATE" ] && [ "$HISTORY_ARCHIVAL_STATE" != "$CURRENT_HISTORY_ARCHIVAL_STATE" ]; then
                   set -- "$@" --history-archival-state "$HISTORY_ARCHIVAL_STATE"
                 fi
@@ -120,7 +147,7 @@ spec:
                 fi
 
                 if [ "$#" -eq 2 ]; then
-                  echo "Namespace settings already match desired archival configuration"
+                  echo "Namespace settings already match desired retention and archival configuration"
                   return 0
                 fi
 
