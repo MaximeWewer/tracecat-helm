@@ -188,8 +188,8 @@ Kubernetes: `>=1.25.0-0`
 | Repository | Name | Version |
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 1.0.4 |
-| https://go.temporal.io/helm-charts | temporal | 1.7.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.37.15 |
+| https://go.temporal.io/helm-charts | temporal | 1.8.0 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.38.1 |
 
 ## Values
 
