@@ -7,6 +7,10 @@ Temporal Cloud add a TriggerAuthentication and reference it via authenticationRe
 */ -}}
 {{- $root := . }}
 {{- $endpoint := include "tracecat.temporalClusterUrl" . | trim }}
+{{- /* KEDA polls from its own namespace: qualify the bundled frontend. */}}
+{{- if .Values.temporal.enabled }}
+{{- $endpoint = regexReplaceAll "^([^:.]+):" $endpoint (printf "${1}.%s.svc:" .Release.Namespace) }}
+{{- end }}
 {{- $namespace := include "tracecat.temporalNamespace" . | trim }}
 {{- $comps := list
   (dict "name" "worker"         "cfg" .Values.autoscaling.worker        "queue" (include "tracecat.temporalQueue" . | trim))
