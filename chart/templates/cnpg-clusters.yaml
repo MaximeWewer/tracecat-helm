@@ -65,6 +65,12 @@ spec:
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with $c.postgresql }}
+  {{- /* CNPG spec.postgresql passthrough (parameters, pg_hba, ...). Raising
+       max_connections restarts the instances (rolling, switchover last). */}}
+  postgresql:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- if $backup.enabled }}
   backup:
     retentionPolicy: {{ $backup.retentionPolicy | quote }}

@@ -867,6 +867,13 @@ cnpg:
         create: true
       # Used when rbac.create=false; empty = "<fullname>-pgvector-ensure".
       serviceAccountName: ""
+    # CNPG spec.postgresql passthrough. Each Tracecat process opens up to
+    # TRACECAT__DB_POOL_SIZE + TRACECAT__DB_MAX_OVERFLOW connections (10 + 60 by
+    # default): with KEDA scaling executors/workers, raise max_connections (the
+    # instances restart) and/or cap the pools via extraEnv.
+    postgresql: {}
+    #   parameters:
+    #     max_connections: "200"
     # Optional per-cluster backup override (merged over cnpg.backup). The app DB
     # holds the workflow definitions + Fernet-encrypted credentials, so it keeps
     # the full default retention. Uncomment to tune, e.g.:
