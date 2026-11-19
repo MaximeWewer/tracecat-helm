@@ -189,7 +189,7 @@ Kubernetes: `>=1.25.0-0`
 |------------|------|---------|
 | https://charts.rustfs.com | rustfs | 1.0.6 |
 | https://go.temporal.io/helm-charts | temporal | 1.8.0 |
-| oci://registry-1.docker.io/cloudpirates | redis | 0.39.6 |
+| oci://registry-1.docker.io/cloudpirates | redis | 0.40.0 |
 
 ## Values
 
@@ -299,6 +299,7 @@ Kubernetes: `>=1.25.0-0`
 | cnpg.app.name | string | `"tracecat-pg-app"` |  |
 | cnpg.app.owner | string | `"tracecat"` |  |
 | cnpg.app.postInitApplicationSQL[0] | string | `"CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"` |  |
+| cnpg.app.postgresql | object | `{}` |  |
 | cnpg.app.resources.limits.memory | string | `"1Gi"` |  |
 | cnpg.app.resources.requests.cpu | string | `"250m"` |  |
 | cnpg.app.resources.requests.memory | string | `"512Mi"` |  |
